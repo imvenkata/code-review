@@ -1,0 +1,25 @@
+{
+  "// note": "EXAMPLE — merge the `gitlab` server block into your own MCP config (VS Code: .vscode/mcp.json, or user settings). Do NOT copy this file over an existing .vscode/mcp.json — you'd clobber other servers. USE_GITLAB_WIKI/USE_MILESTONE=false drop ~20 tools; USE_PIPELINE=true is on so review-mr can read MR pipeline status — the agent's tools: list loads only the 2 pipeline tools it needs, so context stays small. Set GITLAB_READ_ONLY_MODE=false for the review-mr agent's approve/reply/resolve actions.",
+  "servers": {
+    "gitlab": {
+      "command": "npx",
+      "args": ["-y", "@zereight/mcp-gitlab"],
+      "env": {
+        "GITLAB_PERSONAL_ACCESS_TOKEN": "${input:gitlabPat}",
+        "GITLAB_API_URL": "https://gitlab.yourco.com/api/v4",
+        "GITLAB_READ_ONLY_MODE": "false",
+        "USE_GITLAB_WIKI": "false",
+        "USE_MILESTONE": "false",
+        "USE_PIPELINE": "true"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "id": "gitlabPat",
+      "type": "promptString",
+      "description": "GitLab personal access token (api scope)",
+      "password": true
+    }
+  ]
+}

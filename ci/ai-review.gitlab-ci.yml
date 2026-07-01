@@ -1,0 +1,29 @@
+# Includable CI template — AI code review (Phase 2). This is NOT a project's root .gitlab-ci.yml;
+# shipping a root .gitlab-ci.yml would clobber the project's own pipeline. Instead, vendor this file
+# + ci/review.py into your repo and add to YOUR .gitlab-ci.yml:
+#
+#   include:
+#     - local: '/ci/ai-review.gitlab-ci.yml'
+#
+# (Or centralize the toolkit as its own GitLab project and use `include: project: file:` — then also
+# have the job fetch ci/review.py, since a remote include pulls only YAML, not the script.)
+#
+# Required CI/CD variables (Settings > CI/CD > Variables; mark masked):
+#   ANTHROPIC_API_KEY   - Anthropic API key (the review LLM)
+#   REVIEW_BOT_TOKEN    - GitLab project/group access token, scope: api (posts the review)
+# Optional: REVIEW_MODEL (default claude-opus-4-8), REVIEW_EFFORT (default high), REVIEW_STRICTNESS
+
+ai-code-review:
+  stage: .post            # built-in stage — always exists, so this drops into any pipeline
+  image: python:3.12-slim
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GITLAB_API_URL: "$CI_API_V4_URL"
+    REVIEW_MODEL: "claude-opus-4-8"
+    REVIEW_EFFORT: "high"
+  script:
+    - pip install --quiet --root-user-action=ignore anthropic requests pyyaml
+    - python ci/review.py
+  allow_failure: true     # advisory — never fail a developer's pipeline
+  interruptible: true

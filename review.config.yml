@@ -1,0 +1,35 @@
+# Review config (config-as-code, CodeRabbit-style). Read by both review features.
+# Lives at repo root; copy + tune per repo. Keep it short.
+
+# Default confidence threshold per strictness level (findings below are dropped).
+strictness:
+  default: medium        # low (>=90) | medium (>=80) | high (>=70)
+
+# Paths excluded from review entirely (token saver + noise reduction).
+path_filters:
+  ignore:
+    - "**/*.lock"
+    - "**/*.min.*"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/vendor/**"
+    - "**/node_modules/**"
+    - "**/*.generated.*"
+    - "**/__snapshots__/**"
+    - "**/package-lock.json"
+    - "**/pnpm-lock.yaml"
+    - "**/yarn.lock"
+
+# MR posting limits.
+review:
+  max_inline_comments: 15      # cap inline threads; overflow summarized
+  enable_suggestions: true     # add ```suggestion blocks for one-click fixes
+  skip_drafts: true            # skip draft / WIP MRs
+  skip_bot_authored: true      # loop guard: skip MRs authored by the review bot
+  # next_actions: "..."        # optional: override the summary-note "next actions" footer ("" to omit)
+  # a summary note is always posted — it carries the incremental head-sha marker
+
+# Model choice is NOT read from this file. It is set where each entry point runs:
+#   - IDE agents: the model you pick in the Copilot chat dropdown (the agents don't pin one)
+#   - CI runner:  the REVIEW_MODEL env var in ci/ai-review.gitlab-ci.yml (default: claude-opus-4-8)
+# Guidance: keep the heavy path on included/free models (0 credits); bump only for large/hard diffs.
