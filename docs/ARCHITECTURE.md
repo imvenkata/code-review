@@ -61,6 +61,7 @@ pipeline status — so no LLM is asked to be a scanner (see §5).
 |---|---|---|
 | **Shared brain** (Agent Skill) | `.github/skills/review-standards/SKILL.md` | The review rubric, 0–100 confidence scoring, false-positive exclusions, security lens, and output contract. Applied by both agents; read verbatim by the CI runner. Portable (Copilot / Claude Code / Cursor / Codex). |
 | **Feature 1 — local review** (agent) | `.github/agents/code-review.agent.md` | Reviews the working-tree / branch diff before push; reports in chat; no network. |
+| **Local diff collector** | `.github/scripts/collect-review-diff.py` | Read-only base resolution and complete committed/staged/unstaged/untracked patch collection for Feature 1. |
 | **Feature 2 — MR review** (agent) | `.github/agents/review-mr.agent.md` | Reviews a GitLab MR, posts a summary note + inline threads, and performs reviewer actions (approve/reply/resolve/update) from chat with a pipeline gate. |
 | **CI runner** (headless) | `ci/review.py` | Deterministic eligibility gate → diff fetch → one Anthropic call (cached + structured output) → confidence/anchor filter → post summary + inline threads. |
 | **AI-review CI template** | `ci/ai-review.gitlab-ci.yml` | Includable job that runs the runner on `merge_request_event` (advisory, `stage: .post`). |
@@ -89,7 +90,8 @@ points never diverge.
   convention requires it.
 - **Confidence scoring (0–100):** every candidate is scored; the default threshold is **80** (tunable
   per run / in `review.config.yml`). Below threshold → dropped.
-- **Severity buckets:** Critical (90–100) must-fix; Important (80–89) should-fix.
+- **Impact severity:** Critical/Important is assigned from production impact independently of the
+  confidence score.
 - **Output contract:** one-line description, `file:line`, the rule or a concrete failure scenario, a
   concrete fix, and a GitLab ` ```suggestion ` block when the exact fix is proposable.
 
@@ -106,10 +108,11 @@ Fast, cheap, no network, no posting. Model is whatever the developer picked in t
 
 ```
 developer ──▶ code-review agent
-                 │ 1. git diff --merge-base origin/HEAD  (runCommands)
+                 │ 1. collect-review-diff.py → configured/default target merge-base
+                 │    + committed/staged/unstaged/untracked changes
                  │ 2. apply review-standards skill + matching instructions + path filters
                  │ 3. review changed lines across the 4 lenses
-                 │ 4. score 0–100, drop < threshold (strictness: low/med/high)
+                 │ 4. confidence filter + independent impact severity
                  └─▶ 5. print findings in chat, grouped by severity (or "No issues found")
 ```
 
@@ -122,18 +125,19 @@ reviewer ──▶ review-mr agent            (requires: project ID + MR IID —
    │
    │  REVIEW PASS (one agent pass; the internal tool loop is free)
    │   0. get_merge_request → eligibility gate (draft / bot / trivial → stop) + capture diff_refs, head sha
-   │   1. get_merge_request_notes → find <!-- ai-review head=<sha> --> marker
-   │        • marker == head  → "up to date", stop
-   │        • older marker    → review only the delta (get_branch_diffs)
-   │   2. list_merge_request_changed_files + get_merge_request_diffs → diff-only; apply path filters
+   │   1. get_merge_request_notes → find complete source=ide marker
+   │        • marker == head  → "up to date", stop (unless force review)
+   │        • older marker    → use only a small, demonstrably complete delta
+   │   2. inventory files + get_merge_request_file_diff batches → coverage accounting
+   │        • incomplete delta/file → full fallback or partial review
    │   3. apply review-standards (4 lenses) on changed lines only
-   │   4. score 0–100; keep ≥ threshold; verify each finding anchors to a real changed line
+   │   4. confidence filter; impact severity; validate old/new diff side
    │   5. list_merge_request_pipelines → pipeline status for head
-   │   6. create_note (summary + pipeline status + marker) ; create_merge_request_thread × N (inline + suggestion)
+   │   6. create_merge_request_thread × N; summary last with complete/partial marker
    │
    └─ REVIEWER ACTIONS (on explicit request, from chat)
        • approve / unapprove  (approve_merge_request)   ── PIPELINE GATE: refuse over red/pending unless "approve anyway"
-       • reply / edit note    (create_merge_request_note / update_merge_request_note)
+       • reply / edit note    (create_merge_request_discussion_note / update_merge_request_note)
        • resolve thread       (resolve_merge_request_thread)
        • labels / assignees   (update_merge_request)
        (merge is intentionally NOT enabled)
@@ -151,14 +155,16 @@ bot token. Never self-approves.
 merge_request_event ──▶ pipeline (stage .post) ──▶ ci/review.py
    0. deterministic gate: state/draft/bot-authored/already-reviewed head  → skip (exit 0)
    1. GET /merge_requests/:iid → diff_refs ;  GET /diffs (paginated) → changed files
-   2. apply path filters ; parse hunks → anchorable line set ; build diff blocks (size-budgeted)
+   2. apply path filters ; parse hunks → old/new changed-line sets ; account for unavailable files
    3. Anthropic messages.create:
         • system = review-standards body  [cache_control: ephemeral]      ← prompt cache
         • output_config.format = JSON schema (findings[] + summary)        ← structured output
         • thinking/effort sent ONLY for reasoning models (Haiku etc. omit) ← model-safe
-   4. drop findings < threshold ; drop any line not in the anchorable set
-   5. POST summary note (walkthrough + severity counts + next-actions footer + head-sha marker)
-      POST inline discussions (position: base/head/start sha, new_path, new_line ; suggestion block)
+   4. drop findings < threshold ; validate exact old/new side and changed line
+   5. POST inline discussions (both paths + old_line/new_line), then summary
+      • complete coverage → state=complete marker
+      • unavailable diff → state=partial marker; no merge-safety conclusion
+      • inline delivery failure → preserve the full finding in the summary
 ```
 
 Failure posture: `allow_failure: true` — the reviewer never breaks a developer's pipeline; missing
@@ -189,24 +195,24 @@ cheapest) at it. No LLM is asked to be a scanner.
 
 ## 6. Cross-cutting mechanisms
 
-**Incremental review (head-sha marker).** Every summary note embeds `<!-- ai-review head=<sha> -->`.
-The next run (agent or CI) reads notes, and: if the marker's sha == the current head → skip; if older
-→ review only the delta (agent uses `get_branch_diffs`); if absent → full review. This makes
-re-pipelines and re-invocations near-free and mirrors CodeRabbit's incremental behavior with no
-external state.
+**Source/state review markers.** Summaries embed
+`<!-- ai-review source=<ide|ci> version=1 state=<complete|partial> head=<sha> -->`. IDE and CI only
+deduplicate against their own source, and only a supported complete marker suppresses work. The IDE
+may use a small old-head-to-new-head delta when it is demonstrably complete; otherwise it performs
+the full batched review. Partial runs remain retryable.
 
 **Confidence filter + anchor validation.** Findings below the strictness threshold are dropped; every
-inline finding must map to a line that actually exists in the diff (the CI runner parses hunks into an
-anchorable-line set and discards the rest) — this kills hallucinated line numbers before anything is
-posted.
+inline finding must map to an exact changed line on the old or new diff side. Impact severity is
+assigned separately from confidence. This prevents a high-confidence low-impact issue from being
+misclassified as Critical.
 
 **Token / credit efficiency (design constraint).**
 - IDE agents don't pin a model → run on **included/free** models (0 credits); the free agent-mode tool
   loop means one invocation ≈ one billable prompt regardless of how many MCP calls it makes.
 - Built-in Copilot "code review" (multiplier 13, GitHub-only) is avoided entirely.
-- **Diff-only** reading; **eligibility gate** + **head-sha marker** make skips ~free.
-- **Trimmed MCP surface:** wiki/milestone tool groups off; the agent's `tools:` allow-list loads only
-  the ~18 tools it uses (out of ~200), including just the 2 pipeline tools.
+- **Diff-only** reading; **eligibility gate** + **complete source marker** make skips inexpensive.
+- **Restricted MCP surface:** a dedicated pinned server hides non-review writes and protects
+  sensitive actions with confirmation; the agent also has a namespaced allow-list.
 - **Confidence ≥80** cuts output tokens and human re-review round-trips.
 
 **Prompt caching (CI).** The runner puts the `review-standards` body in a cached system block; on a
@@ -221,15 +227,18 @@ that support them, so switching `REVIEW_MODEL` to a cheaper model can't 400.
 
 ## 7. Integration & data flow
 
-**gitlab-mcp (IDE path).** The `@zereight/mcp-gitlab` server bridges Copilot agents to GitLab. Trimmed
-via env flags; read/write scoped by the agent's `tools:` allow-list. Tools used by `review-mr`:
+**gitlab-mcp (IDE path).** A pinned `@zereight/mcp-gitlab` process named `gitlab-review` bridges
+Copilot to GitLab. Server-side deny/confirmation policies are the primary boundary; every allowed
+write requires `_confirmed: true`, and the agent's
+namespaced tool allow-list is defense in depth. Tools used by `review-mr`:
 
-- *Read:* `get_merge_request`, `list_merge_request_changed_files`, `get_merge_request_diffs`,
-  `get_merge_request_notes`, `mr_discussions`, `get_branch_diffs`, `get_merge_request_approval_state`,
-  `list_merge_request_pipelines`, `get_pipeline`.
+- *Read:* `get_merge_request`, `list_merge_request_changed_files`, `get_merge_request_file_diff`,
+  `get_file_contents`, `get_merge_request_notes`, `mr_discussions`, `get_branch_diffs`,
+  `get_merge_request_approval_state`, `list_merge_request_pipelines`, `get_pipeline`.
 - *Write (review):* `create_note`, `create_merge_request_thread`.
-- *Reviewer actions:* `approve_merge_request`, `unapprove_merge_request`, `create_merge_request_note`,
-  `update_merge_request_note`, `resolve_merge_request_thread`, `update_merge_request`.
+- *Reviewer actions:* `approve_merge_request`, `unapprove_merge_request`,
+  `create_merge_request_discussion_note`, `update_merge_request_note`,
+  `resolve_merge_request_thread`, `update_merge_request`.
 
 **Anthropic API (CI path).** `messages.create` with a cached system prefix, structured-output format,
 and model-gated thinking/effort. Model via `REVIEW_MODEL` (default `claude-opus-4-8`).
@@ -238,8 +247,8 @@ and model-gated thinking/effort. Model via `REVIEW_MODEL` (default `claude-opus-
 (`/notes`, `/discussions` with a `position`) using a bot token (`PRIVATE-TOKEN`).
 
 **Inline comment positioning.** Both paths anchor inline comments with a `position` object carrying
-`base_sha`/`head_sha`/`start_sha` (from the MR's `diff_refs`), `position_type: "text"`, `new_path`,
-and `new_line`.
+`base_sha`/`head_sha`/`start_sha` (from the MR's `diff_refs`), `position_type: "text"`, both
+`old_path` and `new_path`, plus `new_line` for additions/modifications or `old_line` for removals.
 
 ---
 
@@ -247,12 +256,12 @@ and `new_line`.
 
 | Surface | Where | Controls |
 |---|---|---|
-| `review.config.yml` | repo root | `strictness.default`; `path_filters.ignore`; `review.{max_inline_comments, enable_suggestions, skip_drafts, skip_bot_authored, next_actions}` |
+| `review.config.yml` | repo root | `local.base_ref`; `strictness.default`; `path_filters.ignore`; `review.{max_inline_comments, enable_suggestions, skip_drafts, skip_bot_authored, next_actions}` |
 | Model (IDE) | Copilot chat dropdown | The agents don't pin a model — chat selection wins |
 | Model (CI) | `REVIEW_MODEL` env | Default `claude-opus-4-8`; set `claude-sonnet-5` / `claude-haiku-4-5` to cut cost |
 | Effort / strictness (CI) | `REVIEW_EFFORT`, `REVIEW_STRICTNESS` env | Effort auto-omitted for non-reasoning models |
 | Secrets (CI) | masked CI/CD vars | `ANTHROPIC_API_KEY`, `REVIEW_BOT_TOKEN` |
-| MCP tool surface | `docs/gitlab-mcp.example.json` | `USE_GITLAB_WIKI/USE_MILESTONE=false`, `USE_PIPELINE=true`, `GITLAB_READ_ONLY_MODE=false` |
+| MCP tool surface | `docs/gitlab-mcp.example.json` | exact package pin, dedicated server, denied writes, confirmation-protected actions |
 | Coding conventions | `.github/instructions/*.instructions.md` | Path-scoped rules the reviewer enforces |
 
 ---
@@ -262,13 +271,15 @@ and `new_line`.
 - **IDE actions run as the developer.** `review-mr` uses the developer's PAT (from their MCP config).
   Approvals, notes, and updates are performed *as that user*, who needs the corresponding GitLab
   rights. The agent is a hands-free UI, not a service identity.
+- **Manual invocation only.** `review-mr` has `disable-model-invocation: true`, preventing another
+  Copilot agent from automatically delegating to this write-capable profile.
 - **CI runs as a bot.** A project/group access token (`REVIEW_BOT_TOKEN`, `api` scope) posts the
   review. The CI runner **never approves** — automated self-approval is out of scope by design.
 - **Read-only profile.** `GITLAB_READ_ONLY_MODE=true` strips every write tool for an "analyze-only"
   variant; the default (`false`) is required for posting notes/threads and reviewer actions.
-- **Guardrails.** `review-mr` never approves/unapproves/changes state without an explicit request for a
-  specific MR, restates the action + current state first, and won't approve over a red/pending
-  pipeline without an explicit override. Merge is not enabled.
+- **Guardrails.** The dedicated MCP policy hides merging and other non-review writes. Every allowed
+  write requires `_confirmed: true`; the explicit scoped review request authorizes review posts,
+  while reviewer actions require a separate confirmation. Approval also remains pipeline-gated.
 - **Secrets never in files.** Tokens live in the developer's MCP config (input-prompted) or masked CI
   variables — never committed.
 
@@ -284,7 +295,7 @@ GitLab has no org-wide `.github` mechanism and Copilot reads the open workspace,
 
 | Class | Files | Adoption |
 |---|---|---|
-| **Reusable** (copy as-is) | `skills/review-standards/`, both agents, `ci/review.py` | drop in unchanged |
+| **Reusable** (copy as-is) | `skills/review-standards/`, both agents, `.github/scripts/`, `ci/review.py` | drop in unchanged |
 | **Configure** | `review.config.yml`, `ci/*.gitlab-ci.yml` (via `include:`), `docs/gitlab-mcp.example.json` (merge) | tune / include / merge — never overwrite the adopter's pipeline or MCP file |
 | **Project-owned** | `.github/instructions/*` (example), `.github/copilot-instructions.md` (**not shipped**) | keep the project's own; the features need nothing here |
 

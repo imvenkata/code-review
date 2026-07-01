@@ -45,23 +45,33 @@ When in doubt, stay silent.
 
 ## Confidence scoring (0-100) — required for every candidate finding
 
-- **0-25** — false positive, doesn't survive light scrutiny, or pre-existing.
-- **26-50** — minor nitpick, not in any instruction file.
-- **51-75** — real but low-impact / rare in practice.
-- **76-90** — important; will be hit in practice or violates a stated convention.
-- **91-100** — critical bug or explicit convention violation, confirmed by the evidence.
+Confidence is the probability that the finding is valid, not its impact:
+
+- **0-25** — speculative, pre-existing, or does not survive light scrutiny.
+- **26-50** — plausible but missing material evidence.
+- **51-75** — likely valid, with some uncertainty about the failure path.
+- **76-90** — strongly supported by the diff and surrounding evidence.
+- **91-100** — directly demonstrated or effectively certain.
 
 **Drop every finding below the threshold** (default 80; overridable per run or in `review.config.yml`).
 If nothing survives, say so plainly and add nothing else.
 
-## Severity buckets (surviving findings)
+## Impact severity (surviving findings)
 
-- **Critical (90-100)** — must fix before merge.
-- **Important (80-89)** — should fix.
+- **Critical** — must fix before merge: security boundary bypass, data loss/corruption, widespread
+  outage, or a core workflow that is reliably broken.
+- **Important** — should fix before merge: material correctness, reliability, error-handling, or
+  explicit-convention failure that does not meet the Critical impact bar.
+
+Assign severity independently from confidence. A confidence-100 low-impact defect is not Critical,
+and a confidence-85 authorization bypass remains Critical.
 
 ## Output contract
 
 Per finding: one-line description, `file:line`, the rule or the concrete failure scenario
 (inputs -> wrong result), and a concrete fix. Brief. No emojis. Quote the convention text verbatim
 when the finding is convention-based. When proposing a code fix on a merge request, use a GitLab
-```suggestion block so the author can apply it in one click.
+```suggestion block so the author can apply it in one click. For merge-request findings, also retain
+the diff side (`new` for added/modified lines, `old` for removed lines) so the comment can be
+anchored without guessing. When a structured-output schema has a `suggestion` field, put only the
+replacement source in that field; the caller adds the Markdown fence.

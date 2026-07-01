@@ -24,7 +24,11 @@ import requests
 import anthropic
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MARKER_RE = re.compile(r"<!--\s*ai-review head=([0-9a-f]{7,40})\s*-->")
+MARKER_VERSION = 1
+MARKER_RE = re.compile(
+    r"<!--\s*ai-review source=(ci|ide) version=(\d+) "
+    r"state=(complete|partial) head=([0-9a-f]{7,64})\s*-->"
+)
 STRICTNESS_THRESHOLD = {"low": 90, "medium": 80, "high": 70}
 MAX_DIFF_CHARS = 80_000  # token budget guard for the whole MR
 
@@ -52,16 +56,17 @@ FINDINGS_SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["file", "line", "severity", "title", "explanation",
+                "required": ["file", "line", "side", "severity", "title", "explanation",
                              "suggestion", "confidence"],
                 "properties": {
                     "file": {"type": "string"},
-                    "line": {"type": "integer"},
+                    "line": {"type": "integer", "minimum": 1},
+                    "side": {"type": "string", "enum": ["new", "old"]},
                     "severity": {"type": "string", "enum": ["critical", "important"]},
                     "title": {"type": "string"},
                     "explanation": {"type": "string"},
                     "suggestion": {"type": "string"},
-                    "confidence": {"type": "integer"},
+                    "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
                 },
             },
         },
@@ -145,40 +150,80 @@ class GitLab:
         return self._paged("/notes")
 
     def post_note(self, body: str):
-        self.s.post(self._mr("/notes"), json={"body": body})
+        r = self.s.post(self._mr("/notes"), json={"body": body})
+        if not r.ok:
+            stop(f"could not post summary note ({r.status_code}): {r.text[:200]}", code=1)
 
-    def post_thread(self, body: str, position: dict):
+    def post_thread(self, body: str, position: dict) -> bool:
         r = self.s.post(self._mr("/discussions"), json={"body": body, "position": position})
         if not r.ok:
             print(f"[ai-review] inline thread failed ({r.status_code}): {r.text[:200]}")
+            return False
+        return True
 
 
 # --- diff parsing ------------------------------------------------------------
 
-HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+HUNK_RE = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 
-def anchorable_lines(diff: str) -> set[int]:
-    """New-file line numbers that exist in this diff (added or context) -> postable."""
-    valid, new_no = set(), 0
+def changed_lines(diff: str) -> dict[str, set[int]]:
+    """Changed line numbers by GitLab diff side."""
+    valid = {"new": set(), "old": set()}
+    old_no, new_no = 0, 0
     for line in diff.splitlines():
         m = HUNK_RE.match(line)
         if m:
-            new_no = int(m.group(1))
+            old_no, new_no = int(m.group(1)), int(m.group(2))
             continue
-        if new_no == 0:
+        if old_no == 0 and new_no == 0:
             continue  # ignore any header lines before the first hunk
         if line.startswith("+") and not line.startswith("+++"):
-            valid.add(new_no)
+            valid["new"].add(new_no)
             new_no += 1
         elif line.startswith("-") and not line.startswith("---"):
-            continue
+            valid["old"].add(old_no)
+            old_no += 1
         elif line.startswith("\\"):  # "\ No newline at end of file"
             continue
-        else:  # context
-            valid.add(new_no)
+        else:  # unchanged context
+            old_no += 1
             new_no += 1
     return valid
+
+
+def marker(source: str, state: str, head_sha: str) -> str:
+    return (
+        f"<!-- ai-review source={source} version={MARKER_VERSION} "
+        f"state={state} head={head_sha} -->"
+    )
+
+
+def has_complete_marker(body: str, source: str, head_sha: str) -> bool:
+    match = MARKER_RE.search(body)
+    return bool(
+        match
+        and match.group(1) == source
+        and int(match.group(2)) == MARKER_VERSION
+        and match.group(3) == "complete"
+        and head_sha.startswith(match.group(4))
+    )
+
+
+def discussion_position(diff_refs: dict, file_meta: dict, finding: dict) -> dict:
+    """Build a GitLab text position for either side of a changed file."""
+    side = finding["side"]
+    if side not in ("new", "old"):
+        raise ValueError(f"unsupported diff side: {side}")
+    return {
+        "base_sha": diff_refs["base_sha"],
+        "head_sha": diff_refs["head_sha"],
+        "start_sha": diff_refs["start_sha"],
+        "position_type": "text",
+        "new_path": file_meta["new_path"],
+        "old_path": file_meta["old_path"],
+        f"{side}_line": finding["line"],
+    }
 
 
 def is_ignored(path: str, globs: list[str]) -> bool:
@@ -204,7 +249,14 @@ def main():
     skip_bot = review_cfg.get("skip_bot_authored", True)
     next_actions = review_cfg.get("next_actions", DEFAULT_NEXT_ACTIONS)
     strictness = os.environ.get("REVIEW_STRICTNESS") or (cfg.get("strictness") or {}).get("default", "medium")
-    threshold = STRICTNESS_THRESHOLD.get(strictness, 80)
+    if strictness not in STRICTNESS_THRESHOLD:
+        stop(
+            f"invalid REVIEW_STRICTNESS/strictness.default: {strictness!r}; "
+            "expected low, medium, or high",
+            code=1,
+        )
+    threshold = STRICTNESS_THRESHOLD[strictness]
+    footer = f"\n\n---\n{next_actions}" if next_actions else ""
 
     gl = GitLab()
     mr = gl.mr()
@@ -221,28 +273,71 @@ def main():
     diff_refs = mr["diff_refs"]
     head_sha = diff_refs["head_sha"]
 
-    # 1. Incremental guard — skip if we already reviewed this exact head.
+    # 1. Source-specific guard — only a complete CI marker suppresses another CI review.
     for n in gl.notes():
         if n.get("author", {}).get("username") != bot:
             continue
-        m = MARKER_RE.search(n.get("body", ""))
-        if m and head_sha.startswith(m.group(1)):
+        body = n.get("body", "")
+        if has_complete_marker(body, "ci", head_sha):
             stop("skipped: head already reviewed (up to date)")
 
-    # 2. Fetch diffs, apply path filters, collect anchorable lines (diff-only).
-    files, blocks, total = {}, [], 0
+    # 2. Fetch diffs, apply path filters, and account for every eligible file.
+    files, blocks, unavailable = {}, [], []
+    total = eligible_count = ignored_count = 0
     for ch in gl.diffs():
-        path = ch["new_path"]
-        if ch.get("deleted_file") or is_ignored(path, ignore):
+        path = ch.get("new_path") or ch.get("old_path")
+        old_path = ch.get("old_path") or path
+        new_path = ch.get("new_path") or path
+        if ch.get("generated_file") or is_ignored(path, ignore):
+            ignored_count += 1
             continue
+        eligible_count += 1
         diff = ch.get("diff", "")
+        if ch.get("collapsed") or ch.get("too_large"):
+            unavailable.append(path)
+            continue
+        if not diff.strip():
+            unavailable.append(path)
+            continue
+        lines = changed_lines(diff)
+        if not lines["new"] and not lines["old"]:
+            unavailable.append(path)
+            continue
         if total + len(diff) > MAX_DIFF_CHARS:
-            blocks.append(f"### {path}\n[diff omitted — MR exceeds size budget]")
+            unavailable.append(path)
             continue
         total += len(diff)
-        files[path] = {"old_path": ch.get("old_path") or path, "lines": anchorable_lines(diff)}
-        blocks.append(f"### {path}\n```diff\n{diff}\n```")
+        files[path] = {
+            "old_path": old_path,
+            "new_path": new_path,
+            "lines": lines,
+        }
+        change_type = (
+            "deleted" if ch.get("deleted_file")
+            else "renamed" if ch.get("renamed_file")
+            else "new" if ch.get("new_file")
+            else "modified"
+        )
+        blocks.append(
+            f"### {path}\n"
+            f"old_path: {old_path}\nnew_path: {new_path}\nchange: {change_type}\n"
+            f"```diff\n{diff}\n```"
+        )
     if not blocks:
+        if unavailable:
+            missing = "\n".join(f"- `{path}`" for path in unavailable[:20])
+            more = (
+                f"\n- …and {len(unavailable) - 20} more"
+                if len(unavailable) > 20 else ""
+            )
+            body = (
+                "### Partial code review\n\n"
+                "No files could be reviewed completely; no merge-safety conclusion was made.\n\n"
+                f"Unavailable files:\n{missing}{more}"
+                f"{footer}\n\n{marker('ci', 'partial', head_sha)}"
+            )
+            gl.post_note(body)
+            stop("done: partial review; no complete diffs available")
         stop("skipped: no reviewable changes after path filters")
 
     # 3. Review — standards cached as the stable system prefix; volatile diff in user turn.
@@ -251,9 +346,12 @@ def main():
     effort = os.environ.get("REVIEW_EFFORT", "high")
     user = (
         f"Review this GitLab merge request titled {mr.get('title')!r}.\n"
-        f"Keep only findings with confidence >= {threshold}. Anchor each finding to a line that "
-        f"exists in the diff (new-file line number). Use GitLab ```suggestion blocks when you can "
-        f"propose the exact fix.\n\n" + "\n\n".join(blocks)
+        f"Keep only findings with confidence >= {threshold}. Severity is impact, independent of "
+        f"confidence. For every finding, set side='new' for an added/modified line or side='old' "
+        f"for a removed line, and use that side's line number from the diff. The file value must "
+        f"exactly match a ### heading. Suggest exact replacement text only for new-side findings."
+        f" The suggestion field must contain source text only, without Markdown fences."
+        f"\n\n" + "\n\n".join(blocks)
     )
     kwargs = dict(
         model=model,
@@ -279,50 +377,94 @@ def main():
     cached = resp.usage.cache_read_input_tokens
     print(f"[ai-review] model={model} cache_read={cached} findings={len(payload['findings'])}")
 
-    # 4. Filter by confidence + validate the anchor line exists in the diff.
+    # 4. Filter by confidence + validate the exact changed line and side.
     kept = []
     for f in payload["findings"]:
         if f["confidence"] < threshold:
             continue
         meta = files.get(f["file"])
-        if not meta or f["line"] not in meta["lines"]:
-            print(f"[ai-review] dropped unanchorable finding: {f['file']}:{f['line']}")
+        side = f["side"]
+        if not meta or f["line"] not in meta["lines"][side]:
+            print(
+                f"[ai-review] dropped unanchorable finding: "
+                f"{f['file']}:{f['line']} ({side})"
+            )
             continue
         kept.append(f)
     kept.sort(key=lambda f: (f["severity"] != "critical", -f["confidence"]))
 
-    # 5. Post — summary note (carries the marker) + inline threads.
-    marker = f"<!-- ai-review head={head_sha} -->"
-    footer = f"\n\n---\n{next_actions}" if next_actions else ""
-    if not kept:
-        gl.post_note(f"### Code review\n\nNo blocking issues found.{footer}\n\n{marker}")
-        stop("done: no findings")
-
-    shown, overflow = kept[:max_inline], kept[max_inline:]
-    crit = sum(1 for f in kept if f["severity"] == "critical")
-    summary = (
-        f"### Code review\n\n{payload['summary']}\n\n"
-        f"Found {len(kept)} issue(s): {crit} critical, {len(kept) - crit} important."
-    )
-    if overflow:
-        summary += f"\n\nTop {max_inline} posted inline; {len(overflow)} more omitted."
-    gl.post_note(summary + footer + f"\n\n{marker}")
-
+    # 5. Post inline findings first; only the final summary can mark the run complete.
+    partial_findings = kept if unavailable else []
+    shown = [] if unavailable else kept[:max_inline]
+    overflow = [] if unavailable else kept[max_inline:]
+    failed_threads = []
     for f in shown:
         meta = files[f["file"]]
         body = f"**{f['title']}** ({f['severity']}, confidence {f['confidence']})\n\n{f['explanation']}"
-        if enable_suggestions and f.get("suggestion"):
+        if enable_suggestions and f["side"] == "new" and f.get("suggestion"):
             body += f"\n\n```suggestion\n{f['suggestion']}\n```"
-        gl.post_thread(body, {
-            "base_sha": diff_refs["base_sha"],
-            "head_sha": diff_refs["head_sha"],
-            "start_sha": diff_refs["start_sha"],
-            "position_type": "text",
-            "new_path": f["file"],
-            "old_path": meta["old_path"],   # correct for renamed files
-            "new_line": f["line"],
-        })
-    stop(f"done: posted {len(shown)} inline finding(s)")
+        position = discussion_position(diff_refs, meta, f)
+        if not gl.post_thread(body, position):
+            failed_threads.append(f)
+
+    complete = not unavailable
+    state = "complete" if complete else "partial"
+    heading = "### Code review" if complete else "### Partial code review"
+    coverage = (
+        f"Reviewed {len(files)} of {eligible_count} eligible file(s); "
+        f"ignored {ignored_count}."
+    )
+
+    if kept:
+        crit = sum(1 for f in kept if f["severity"] == "critical")
+        conclusion = (
+            f"{payload['summary']}\n\n"
+            f"Found {len(kept)} issue(s): {crit} critical, "
+            f"{len(kept) - crit} important."
+        )
+    elif complete:
+        conclusion = "No blocking issues found."
+    else:
+        conclusion = "No issues found in the reviewed subset; no merge-safety conclusion was made."
+
+    details = []
+    if unavailable:
+        listed = ", ".join(f"`{path}`" for path in unavailable[:20])
+        suffix = f" and {len(unavailable) - 20} more" if len(unavailable) > 20 else ""
+        details.append(f"Unavailable files: {listed}{suffix}.")
+    if partial_findings:
+        partial_lines = "\n".join(
+            f"- {f['title']} — `{f['file']}:{f['line']}` ({f['side']}): {f['explanation']}"
+            for f in partial_findings
+        )
+        details.append("Findings from the reviewed subset:\n" + partial_lines)
+    if failed_threads:
+        failed_lines = "\n".join(
+            f"- {f['title']} — `{f['file']}:{f['line']}` ({f['side']}): {f['explanation']}"
+            for f in failed_threads
+        )
+        details.append(
+            "These findings could not be posted inline and are preserved here:\n"
+            + failed_lines
+        )
+    if overflow:
+        overflow_lines = "\n".join(
+            f"- {f['title']} — `{f['file']}:{f['line']}` ({f['side']})"
+            for f in overflow
+        )
+        details.append(
+            f"{len(overflow)} finding(s) exceeded the inline cap and are listed here:\n"
+            f"{overflow_lines}"
+        )
+
+    summary = f"{heading}\n\n{coverage}\n\n{conclusion}"
+    if details:
+        summary += "\n\n" + "\n\n".join(details)
+    gl.post_note(summary + footer + f"\n\n{marker('ci', state, head_sha)}")
+    stop(
+        f"done: {state} review; posted {len(shown) - len(failed_threads)} "
+        f"inline finding(s)"
+    )
 
 
 if __name__ == "__main__":

@@ -1,13 +1,17 @@
 {
-  "// note": "EXAMPLE — merge the `gitlab` server block into your own MCP config (VS Code: .vscode/mcp.json, or user settings). Do NOT copy this file over an existing .vscode/mcp.json — you'd clobber other servers. USE_GITLAB_WIKI/USE_MILESTONE=false drop ~20 tools; USE_PIPELINE=true is on so review-mr can read MR pipeline status — the agent's tools: list loads only the 2 pipeline tools it needs, so context stays small. Set GITLAB_READ_ONLY_MODE=false for the review-mr agent's approve/reply/resolve actions.",
+  "// note": "EXAMPLE — merge the dedicated `gitlab-review` server block into your own VS Code .vscode/mcp.json or user settings. Do not overwrite an existing file. The package is pinned for reproducibility; upgrade it deliberately after compatibility testing. The deny policy hides every write tool except the review workflow's explicit allow-list, and every allowed write requires `_confirmed: true`. GITLAB_READ_ONLY_MODE must remain false for review comments/actions, so use a short-lived token belonging to a user with the minimum project role your approval policy permits.",
   "servers": {
-    "gitlab": {
+    "gitlab-review": {
+      "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@zereight/mcp-gitlab"],
+      "args": ["-y", "@zereight/mcp-gitlab@2.1.28"],
       "env": {
         "GITLAB_PERSONAL_ACCESS_TOKEN": "${input:gitlabPat}",
         "GITLAB_API_URL": "https://gitlab.yourco.com/api/v4",
         "GITLAB_READ_ONLY_MODE": "false",
+        "GITLAB_TOOLSETS": "merge_requests,repositories,pipelines",
+        "GITLAB_DENIED_TOOLS_REGEX": "^(?!get_|list_|search_|validate_|mr_discussions$|create_note$|create_merge_request_thread$|create_merge_request_discussion_note$|update_merge_request_note$|resolve_merge_request_thread$|approve_merge_request$|unapprove_merge_request$|update_merge_request$).*",
+        "GITLAB_TOOL_POLICY_APPROVE": "create_note,create_merge_request_thread,create_merge_request_discussion_note,update_merge_request_note,resolve_merge_request_thread,approve_merge_request,unapprove_merge_request,update_merge_request",
         "USE_GITLAB_WIKI": "false",
         "USE_MILESTONE": "false",
         "USE_PIPELINE": "true"
@@ -18,7 +22,7 @@
     {
       "id": "gitlabPat",
       "type": "promptString",
-      "description": "GitLab personal access token (api scope)",
+      "description": "Short-lived GitLab token for MR review (api scope)",
       "password": true
     }
   ]
