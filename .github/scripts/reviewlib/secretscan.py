@@ -34,13 +34,26 @@ _RULES: tuple[tuple[str, str, re.Pattern[str], int | None], ...] = (
      re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b"), 0),
     ("url-credentials", "high",
      re.compile(r"\b[a-z][a-z0-9+.-]*://[^/\s:@]{1,64}:([^@\s'\"]{4,})@"), 1),
+    ("basic-auth-header", "high",
+     re.compile(r"(?i)\bauthorization['\"\])]{0,2}\s*[:=]\s*['\"]?basic\s+([A-Za-z0-9+/=]{8,})"), 1),
     ("credential-assignment", "medium",
      re.compile(
-         r"(?i)\b(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|auth)"
+         r"(?i)\b[\w-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|auth)"
          r"[\w-]*\s*[:=]>?\s*['\"]([^'\"]{6,})['\"]"), 1),
+    # Unquoted assignments (env files, YAML, properties, shell): the fuzzy layer.
+    # Identifier-like and code-like values are filtered below.
+    ("credential-assignment-unquoted", "medium",
+     re.compile(
+         r"(?i)\b[\w-]*(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?key|client[_-]?secret|auth[_-]?token|token)"
+         r"[\w-]*\s*[:=]\s*([A-Za-z0-9][^\s'\"#;,]{5,})"), 1),
     ("high-entropy-literal", "medium",
      re.compile(r"['\"]([A-Za-z0-9+/=_-]{40,})['\"]"), 1),
 )
+
+# A value that is just a variable/attribute reference, or contains call/index
+# syntax, is code wiring a credential — not the credential itself.
+_IDENTIFIER_LIKE = re.compile(r"^[A-Za-z_.]+$")
+_CODE_VALUE = re.compile(r"[(){}\[\]<>]")
 
 _ALLOW_MARKERS = ("gitleaks:allow", "pragma: allowlist secret", "nosecret")
 
@@ -80,6 +93,10 @@ def _line_findings(text: str, path: str, line: int) -> list[Finding]:
             if value is not None and _PLACEHOLDER.search(value):
                 continue
             if rule == "high-entropy-literal" and (value is None or _entropy(value) < 4.0):
+                continue
+            if rule == "credential-assignment-unquoted" and (
+                _IDENTIFIER_LIKE.match(value) or _CODE_VALUE.search(value)
+            ):
                 continue
             findings.append(Finding(rule, confidence, path, line, _redact(value)))
             break  # one hit per rule per line keeps output compact

@@ -34,14 +34,15 @@ report parsing) runs in read-only Python scripts so model tokens are spent only 
 | `.github/instructions/*.instructions.md` | Project-owned, path-scoped coding conventions |
 | `review.config.yml` | Path filters, strictness, token budgets, evidence requirements, comment limits |
 | `docs/gitlab-mcp.example.json` | Pinned, least-privilege VS Code MCP configuration |
-| `ci/security-scanning.gitlab-ci.yml` | GitLab Secret Detection and SAST templates |
 
-There is intentionally no AI review job in `ci/`.
+The toolkit ships no CI jobs: company pipeline templates are organization-owned and out of scope.
+The MR agent verifies whatever Secret Detection / SAST report artifacts the organization's own
+pipeline publishes (paths configured in `review.config.yml`), and both review features run a
+deterministic regex + entropy password/secret pre-scan that needs no CI at all.
 
 ## Adopt in a repository
 
-1. Copy `.github/agents/`, `.github/skills/`, `.github/scripts/`, `review.config.yml`, and the
-   GitLab-native security template.
+1. Copy `.github/agents/`, `.github/skills/`, `.github/scripts/`, and `review.config.yml`.
 2. Replace or remove the placeholder `.github/instructions/conventions.instructions.md`.
 3. Merge the `gitlab-review` server from `docs/gitlab-mcp.example.json` into `.vscode/mcp.json`.
    Keep the package pin and tool policy until a newer version passes compatibility testing.
@@ -50,7 +51,9 @@ There is intentionally no AI review job in `ci/`.
 5. Export the same values in the reviewer's shell (`GITLAB_TOKEN` + `GITLAB_API_URL`) so
    `collect-mr-evidence.py` can gather all MR evidence in one read-only pass; without them the
    agent falls back to the slower per-call MCP reads.
-6. Include `/ci/security-scanning.gitlab-ci.yml` from the target repository's `.gitlab-ci.yml`.
+6. If the organization's pipeline runs Secret Detection / SAST, point each scanner's `artifact`
+   in `review.config.yml` at the report path it publishes (GitLab's standard names are the
+   defaults); otherwise leave the modes `optional` — absence is reported as `Not evaluated`.
 7. Tune `requirements`, `security`, and `limits` in `review.config.yml` to the GitLab tier and
    controls the organization actually enforces.
 8. In VS Code Chat diagnostics, verify both agents, all three skills, and every namespaced MCP tool

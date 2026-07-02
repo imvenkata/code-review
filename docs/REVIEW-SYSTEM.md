@@ -69,16 +69,24 @@ Write tools:
 Do not add approval, merge, issue mutation, repository write, branch write, note edit, resolution,
 or MR-update tools to this profile.
 
-## GitLab CI controls
+## Security scanning evidence
 
-Include `ci/security-scanning.gitlab-ci.yml` for GitLab Secret Detection and SAST. When a scanner is
-required or present, the agent verifies its job and artifact; it does not replace the scanner.
-The reusable toolkit defaults both scanners to `optional`; repositories with enforced controls
-should override their modes to `required`.
+Company CI templates are organization-owned and out of scope for this toolkit; it ships no CI
+jobs. The MR agent verifies whatever scanner evidence the organization's pipeline publishes:
+configure each control's `mode` and `artifact` path in `review.config.yml` (the defaults are
+GitLab's standard `gl-secret-detection-report.json` / `gl-sast-report.json`, which GitLab's own
+templates and most org wrappers emit). When a scanner is required or present, the agent verifies
+its job and artifact; it does not replace the scanner. The toolkit defaults both scanners to
+`optional`; repositories with enforced controls should override their modes to `required`.
 
-Default Secret Detection reliably targets structured secrets but does not promise generic
-plaintext-password detection in every context. If that is a policy requirement, security owners
-must deploy and test an organization-approved custom ruleset on a GitLab tier that supports it.
+Independent of CI, both review features run a deterministic password/secret pre-scan
+(`.github/scripts/reviewlib/secretscan.py`) over changed lines: structured token regexes (GitLab/
+GitHub/AWS/Slack/Google tokens, private keys, URL and basic-auth credentials) plus heuristic
+plaintext-password detection (credential-keyword assignments filtered by placeholder rules and
+Shannon entropy). It runs on any GitLab tier, costs no model tokens, redacts every matched value,
+and its candidates are verified by the agent before being reported. It complements — never
+replaces — a required organization Secret Detection control. Tune or extend the rule set in one
+place; both agents and any git hook (`--fail-on-findings`) pick it up.
 
 Dependency scanning is tier/version dependent and is not silently assumed. When enabled for the
 organization, add its required job/report contract explicitly to `review.config.yml` and
@@ -94,8 +102,10 @@ organization, add its required job/report contract explicitly to `review.config.
 6. Run a fixture MR containing:
    - one linked story with explicit acceptance criteria;
    - changed production and test files;
-   - successful SAST and Secret Detection artifacts;
-   - a safe seeded scanner fixture in an isolated test project.
+   - successful SAST and Secret Detection artifacts when the organization's pipeline provides
+     them;
+   - a safe seeded fake credential on a changed line to confirm the deterministic pre-scan flags
+     and redacts it.
 7. Exercise missing-story, failed-pipeline, missing-artifact, oversized-diff, renamed-file, and
    removed-line paths.
 8. Confirm partial reviews never produce `Ready for human decision`.
@@ -108,7 +118,7 @@ organization, add its required job/report contract explicitly to `review.config.
 
 Per-repository distribution is the most predictable:
 
-- copy the agents, skills, local diff helper, config, and security template;
+- copy the agents, skills, collector scripts, and config;
 - keep project instructions project-owned;
 - merge, never overwrite, the MCP configuration;
 - sync toolkit updates through normal reviewed repository changes.

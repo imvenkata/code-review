@@ -197,7 +197,6 @@ class AgentContractTests(unittest.TestCase):
             ROOT / "review.config.yml",
             ROOT / "docs/ARCHITECTURE.md",
             ROOT / "docs/REVIEW-SYSTEM.md",
-            ROOT / "ci/security-scanning.gitlab-ci.yml",
             *AGENTS.glob("*.agent.md"),
             *(ROOT / ".github/skills").glob("*/SKILL.md"),
             *(ROOT / ".github/scripts").rglob("*.py"),
@@ -214,14 +213,11 @@ class AgentContractTests(unittest.TestCase):
             for token in forbidden:
                 self.assertNotIn(token, text, f"{path}: {token}")
 
-    def test_security_template_and_config_define_explicit_evidence_policies(self) -> None:
-        security_ci = (ROOT / "ci/security-scanning.gitlab-ci.yml").read_text(
-            encoding="utf-8"
-        )
+    def test_config_defines_explicit_evidence_policies_and_no_ci_ships(self) -> None:
         config = (ROOT / "review.config.yml").read_text(encoding="utf-8")
 
-        self.assertIn("Security/Secret-Detection.gitlab-ci.yml", security_ci)
-        self.assertIn("Security/SAST.gitlab-ci.yml", security_ci)
+        # Company CI templates are org-owned; this toolkit must not ship CI jobs.
+        self.assertFalse((ROOT / "ci").exists())
         self.assertIn("require_story: true", config)
         self.assertRegex(config, r"pipeline:\n\s+mode: required")
         self.assertRegex(config, r"secret_detection:\n\s+mode: optional")

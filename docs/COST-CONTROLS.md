@@ -24,7 +24,7 @@ Every lever below is already wired into the toolkit — the point of this page i
 | No duplicate reviews | The version-3 freshness marker suppresses a full re-review when head SHA, requirement, pipeline, and scanner evidence are unchanged | `gitlab-review-evidence` |
 | Cheap model for the cheap job | Pick a low-cost/included model in the Copilot chat picker for routine `code-review` runs — a single-pass pre-push gate does not need a premium model | chat model picker |
 | Single-turn agents | Both agents are one-pass by contract: no clarifying questions mid-run, no background subagents, no re-reading files | agent bodies |
-| Scanners replace model effort | GitLab Secret Detection and SAST run in CI for free (compute-wise); the agent verifies their reports instead of re-deriving them | `ci/security-scanning.gitlab-ci.yml` |
+| Scanners replace model effort | The organization's CI scanners run for free (compute-wise); the agent verifies their published reports instead of re-deriving them | org CI + `review.config.yml` `security:` |
 | Short instruction files | Agent bodies, skills, and instruction files are input tokens on every run; keep conventions specific and brief | `.github/instructions/` |
 
 ## Model selection

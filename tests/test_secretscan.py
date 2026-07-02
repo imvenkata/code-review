@@ -78,6 +78,56 @@ class SecretScanTests(unittest.TestCase):
         rendered = secretscan.render_section(findings)
         self.assertNotIn("S3cr3tPass", rendered)
 
+    def test_detects_unquoted_passwords_in_env_yaml_and_properties(self) -> None:
+        findings = secretscan.scan_patch(
+            patch_for(
+                [
+                    "DB_PASSWORD=S3cr3tv4lue9!",
+                    "db_password: hunter42Extra",
+                    "spring.datasource.password = Qw8xTr41pz",
+                ],
+                path="config/app.env",
+            )
+        )
+
+        self.assertEqual(
+            [finding.rule for finding in findings],
+            ["credential-assignment-unquoted"] * 3,
+        )
+        rendered = secretscan.render_section(findings)
+        self.assertNotIn("S3cr3tv4lue9", rendered)
+        self.assertNotIn("hunter42Extra", rendered)
+
+    def test_unquoted_rule_skips_code_wiring_and_comparisons(self) -> None:
+        quiet = secretscan.scan_patch(
+            patch_for(
+                [
+                    'password = os.environ["DB_PASS"]',
+                    "password = get_password()",
+                    "password = expected_password",
+                    "if password == candidate_value:",
+                    "password: ${DB_PASSWORD}",
+                ]
+            )
+        )
+
+        self.assertEqual(quiet, [])
+
+    def test_detects_basic_auth_headers(self) -> None:
+        encoded = "YWRtaW46" + "aHVudGVyMg=="
+        findings = secretscan.scan_patch(
+            patch_for(
+                [
+                    f'headers["Authorization"] = "Basic {encoded}"',
+                    f"Authorization: Basic {encoded}",
+                ]
+            )
+        )
+
+        self.assertEqual(len(findings), 2)
+        self.assertTrue(all(f.rule == "basic-auth-header" for f in findings))
+        self.assertNotIn(encoded, secretscan.render_section(findings))
+
     def test_high_entropy_literal_requires_entropy(self) -> None:
         low_entropy = "a" * 48
         self.assertEqual(
