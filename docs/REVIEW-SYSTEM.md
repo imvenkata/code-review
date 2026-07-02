@@ -39,6 +39,15 @@ Configure each control in `review.config.yml` with:
 - `optional` — inspect when present; absence is non-blocking;
 - `disabled` — do not inspect.
 
+## Evidence collector contract
+
+`collect-mr-evidence.py` is the primary evidence path: one read-only run per review, using
+`GITLAB_TOKEN` (or `GITLAB_PERSONAL_ACCESS_TOKEN`) and `GITLAB_API_URL` (or `CI_API_V4_URL`) from
+the environment — never from the command line. It returns the `# mr-evidence v1` bundle and exits
+non-zero with a clear message when the environment or `review.config.yml` is unusable, in which
+case the agent uses the MCP reads below for the whole review. Keep terminal auto-approval off so
+each collector run stays visible and confirmable.
+
 ## GitLab MCP contract
 
 Use the pinned server configuration in `gitlab-mcp.example.json`.
@@ -91,6 +100,9 @@ organization, add its required job/report contract explicitly to `review.config.
    removed-line paths.
 8. Confirm partial reviews never produce `Ready for human decision`.
 9. Confirm no provider key or direct model client exists in repository or CI variables.
+10. Run `collect-mr-evidence.py` by hand against the fixture MR and confirm one command returns
+    the full bundle; then confirm a `review-mr` session performs one collector run, one review
+    turn, and only the confirmed writes (see [COST-CONTROLS.md](COST-CONTROLS.md)).
 
 ## Distribution
 

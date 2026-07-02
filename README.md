@@ -13,7 +13,11 @@ toolkit does not call any model API, run a headless AI CI job, or require a mode
 GitLab access is through pinned [`@zereight/mcp-gitlab`](https://github.com/zereight/gitlab-mcp).
 
 Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · operating and rollout guide:
-[docs/REVIEW-SYSTEM.md](docs/REVIEW-SYSTEM.md).
+[docs/REVIEW-SYSTEM.md](docs/REVIEW-SYSTEM.md) · credit/token budget design:
+[docs/COST-CONTROLS.md](docs/COST-CONTROLS.md).
+
+Deterministic work (diff collection, path filtering, patch budgeting, secret pre-scan, scanner
+report parsing) runs in read-only Python scripts so model tokens are spent only on judgment.
 
 ## Components
 
@@ -24,9 +28,11 @@ Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · operating and roll
 | `.github/skills/review-standards/SKILL.md` | Shared changed-line review rubric |
 | `.github/skills/requirements-traceability/SKILL.md` | Story/epic and acceptance-criteria evidence |
 | `.github/skills/gitlab-review-evidence/SKILL.md` | CI/security evidence, trust boundaries, verdicts, freshness |
-| `.github/scripts/collect-review-diff.py` | Read-only complete local-diff collector |
+| `.github/scripts/collect-review-diff.py` | Read-only local-diff collector (budgets + `--secret-scan`) |
+| `.github/scripts/collect-mr-evidence.py` | One-pass read-only GitLab MR evidence bundle |
+| `.github/scripts/reviewlib/` | Shared config parser and deterministic secret scanner |
 | `.github/instructions/*.instructions.md` | Project-owned, path-scoped coding conventions |
-| `review.config.yml` | Path filters, strictness, evidence requirements, comment limits |
+| `review.config.yml` | Path filters, strictness, token budgets, evidence requirements, comment limits |
 | `docs/gitlab-mcp.example.json` | Pinned, least-privilege VS Code MCP configuration |
 | `ci/security-scanning.gitlab-ci.yml` | GitLab Secret Detection and SAST templates |
 
@@ -41,11 +47,15 @@ There is intentionally no AI review job in `ci/`.
    Keep the package pin and tool policy until a newer version passes compatibility testing.
 4. Point `GITLAB_API_URL` at your GitLab instance and use a short-lived token with the minimum role
    needed to read project evidence and create MR comments.
-5. Include `/ci/security-scanning.gitlab-ci.yml` from the target repository's `.gitlab-ci.yml`.
-6. Tune `requirements` and `security` in `review.config.yml` to the GitLab tier and controls the
-   organization actually enforces.
-7. In VS Code Chat diagnostics, verify both agents, all three skills, and every namespaced MCP tool
-   load without errors.
+5. Export the same values in the reviewer's shell (`GITLAB_TOKEN` + `GITLAB_API_URL`) so
+   `collect-mr-evidence.py` can gather all MR evidence in one read-only pass; without them the
+   agent falls back to the slower per-call MCP reads.
+6. Include `/ci/security-scanning.gitlab-ci.yml` from the target repository's `.gitlab-ci.yml`.
+7. Tune `requirements`, `security`, and `limits` in `review.config.yml` to the GitLab tier and
+   controls the organization actually enforces.
+8. In VS Code Chat diagnostics, verify both agents, all three skills, and every namespaced MCP tool
+   load without errors, and adjust the `model:` list in `code-review.agent.md` to models your
+   Copilot policy enables.
 
 Do not overwrite a repository's existing `.vscode/mcp.json`, `.gitlab-ci.yml`, or
 `.github/copilot-instructions.md`.

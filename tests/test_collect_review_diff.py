@@ -109,6 +109,36 @@ class CollectReviewDiffTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('base-ref: "main"', result.stdout)
 
+    def test_secret_scan_flags_and_redacts_added_credentials(self) -> None:
+        token = "glpat-" + "Zq9rT2wLm8Kv3Np6Qs1B"
+        (self.repo / "cfg.py").write_text(f'token = "{token}"\n', encoding="utf-8")
+
+        result = self.collect("--secret-scan")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("secret-candidates: ", result.stdout)
+        self.assertIn("secret-candidate\tgitlab-token\thigh\tcfg.py:1", result.stdout)
+        scan_section = result.stdout.split("## Secret scan")[1].split("## Patch")[0]
+        self.assertNotIn(token, scan_section)
+
+    def test_oversized_files_are_reported_unavailable_not_flooded(self) -> None:
+        (self.repo / "review.config.yml").write_text(
+            "limits:\n  max_file_patch_kb: 1\n  max_total_patch_kb: 8\n",
+            encoding="utf-8",
+        )
+        (self.repo / "huge.py").write_text(
+            "".join(f"line{i} = {i}\n" for i in range(300)), encoding="utf-8"
+        )
+        (self.repo / "small.py").write_text("ok = True\n", encoding="utf-8")
+
+        result = self.collect()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("unavailable-files: 1", result.stdout)
+        self.assertIn('unavailable\ttoo-large\t"huge.py"', result.stdout)
+        self.assertIn("+ok = True", result.stdout)
+        self.assertNotIn("+line299", result.stdout)
+
     def test_unborn_repository_reviews_initial_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)

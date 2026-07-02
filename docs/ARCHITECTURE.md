@@ -6,11 +6,11 @@ The system has exactly two AI agents, both running inside the organization's app
 Copilot surface:
 
 ```text
-Developer ──> code-review ──> local Git diff ──> findings in chat
+Developer ──> code-review ──> collect-review-diff.py (local Git, read-only) ──> findings in chat
 
-Reviewer  ──> review-mr ──> zereight/gitlab-mcp ──> GitLab MR/work item/pipeline/artifacts
-                                      │
-                                      └──────────> new review threads + one summary
+Reviewer  ──> review-mr ──┬─> collect-mr-evidence.py (GitLab REST, GET-only) ─> evidence bundle
+                          └─> zereight/gitlab-mcp ─┬─> fallback/deep-dive reads
+                                                   └─> new review threads + one summary (confirmed)
 
 GitLab CI ──> tests/linters/SAST/Secret Detection ──> jobs + report artifacts
 ```
@@ -23,6 +23,7 @@ There is no model client, model-provider credential, or AI execution path in Git
 |---|---|
 | `code-review` agent | Collect and review committed, staged, unstaged, and untracked local changes |
 | `review-mr` agent | Orchestrate MR identity, requirements, diff, pipeline, security, and posting |
+| Collector scripts + `reviewlib` | Deterministic evidence gathering, path filters, token budgets, redacted secret pre-scan |
 | `review-standards` skill | Shared changed-line quality rubric, confidence threshold, output contract |
 | `requirements-traceability` skill | Resolve the primary story/work item and map acceptance criteria to evidence |
 | `gitlab-review-evidence` skill | Untrusted-content boundary, pipeline/security verification, verdict and freshness |
@@ -41,14 +42,18 @@ The local agent has no GitLab, edit, network, dependency-installation, or extern
 
 ## MR review flow
 
-1. Validate the explicit project and MR IID; capture the exact head and diff refs.
-2. Resolve an explicit or unambiguous GitLab story/work item and applicable parent epic.
-3. Apply pipeline/scanner policy modes and refresh enabled current-head evidence.
-4. Compare the complete evidence fingerprint with any prior version-3 marker.
-5. Fetch the MR file manifest and diff bodies with per-file coverage accounting.
-6. Review changed lines and build the acceptance-criteria evidence matrix.
-7. Determine a verdict from independent code, requirements, pipeline, and security dimensions.
-8. Post verified inline positions, then one final summary and freshness marker.
+1. Validate the explicit project and MR IID.
+2. Run `collect-mr-evidence.py` once (GET-only GitLab REST): MR identity and diff refs, the
+   explicit or unambiguous story, prior review markers, current-head pipeline and jobs, redacted
+   per-scanner report summaries, a deterministic secret pre-scan, and filtered per-file diffs
+   under the configured token budgets. MCP reads fill specific gaps (work items, unavailable
+   files, head-pinned file context) or replace the script entirely when it cannot run.
+3. Compare the complete evidence fingerprint with any prior version-3 marker.
+4. Review changed lines and build the acceptance-criteria evidence matrix with per-file coverage
+   accounting.
+5. Determine a verdict from independent code, requirements, pipeline, and security dimensions.
+6. Post verified inline positions, then one final summary and freshness marker (confirmed MCP
+   writes only).
 
 Incomplete diff, story, required evidence, or a present scanner job with a broken report yields
 `Evidence incomplete`. An absent optional scanner is `Not evaluated` and does not make the run
@@ -86,7 +91,11 @@ the authoritative merge control where the organization's tier supports them.
 
 ## GitLab write boundary
 
-The `review-mr` agent exposes only:
+`collect-mr-evidence.py` issues only HTTP GET requests against the organization's own GitLab
+instance (`GITLAB_TOKEN` + `GITLAB_API_URL`); it cannot post, mutate, or contact any third-party
+service, and it redacts secret values from scanner reports and its own pre-scan output.
+
+For writes, the `review-mr` agent exposes only:
 
 - `create_merge_request_thread`;
 - `create_merge_request_note`.

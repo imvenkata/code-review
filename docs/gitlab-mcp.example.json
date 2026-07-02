@@ -1,5 +1,6 @@
 {
   "// note": "EXAMPLE — merge the dedicated `gitlab-review` server block into your own VS Code .vscode/mcp.json or user settings. Do not overwrite an existing file. The package is pinned for reproducibility; upgrade it deliberately after compatibility testing. The server exposes read-only MR, repository, pipeline, issue, and work-item evidence plus exactly two confirmed writes: a new review thread and a new MR summary note. Use a short-lived token with the minimum project role required to comment.",
+  "// hardening": "Optionally add GITLAB_ALLOWED_PROJECT_IDS (comma-separated numeric project IDs) to the env block to hard-limit which projects the server can reach, and export the same token as GITLAB_TOKEN in your shell so the collect-mr-evidence.py script can run its single read-only evidence pass.",
   "servers": {
     "gitlab-review": {
       "type": "stdio",

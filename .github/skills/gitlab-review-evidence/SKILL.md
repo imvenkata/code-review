@@ -19,6 +19,13 @@ user-invocable: false
 - `_confirmed: true` is allowed only for the review thread and final summary writes authorized by
   the user's request to review that exact MR.
 
+## Evidence sources
+
+The read-only collector script (`.github/scripts/collect-mr-evidence.py`) is the preferred source:
+one run returns MR identity, markers, pipeline, jobs, per-scanner report summaries, and diffs. The
+MCP read tools are the fallback and the deep-dive path. Every rule below applies identically to
+both sources; a value is never more trusted because a script printed it.
+
 ## Pipeline evidence
 
 Read `security.pipeline.mode` from `review.config.yml`. Valid modes are `required`, `optional`, and
@@ -79,6 +86,10 @@ verdict regardless of whether its mode is required or optional.
 Do not duplicate scanner findings as speculative inline code comments. Put verified report findings
 in the security section; add an inline finding only when the exact changed line independently
 demonstrates the problem.
+
+The collector's deterministic secret pre-scan is not scanner evidence: its candidates are code
+findings that flow through the `review-standards` security lens after verification against the
+diff. It never replaces a required Secret Detection control.
 
 ## Coverage and verdict
 

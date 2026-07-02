@@ -1,9 +1,11 @@
 ---
 name: code-review
 description: Review my current local diff before I push (working tree / current branch). Reports findings in chat; does not touch GitLab.
+argument-hint: "[strictness=low|medium|high]"
 target: vscode
 user-invocable: true
 disable-model-invocation: true
+model: ['GPT-5 mini', 'GPT-4.1']
 tools: ['search/codebase', 'execute/runInTerminal']
 ---
 
@@ -35,17 +37,21 @@ matches the changed files, and skip files matching `review.config.yml` path filt
 
 ## Steps (one pass — do not stop to ask questions)
 
-1. **Get the diff.** Run `.github/scripts/collect-review-diff.py` with the first available Python
-   3.10+ launcher (`python3`, `python`, or `py -3`). This read-only helper resolves the
-   configured/default target branch and includes committed, staged, unstaged, and untracked
-   changes. If it fails, report its exact error and stop — never silently substitute a different
-   base. If `reviewable-files` is zero, say "No changes to review" and stop. If command output is
-   truncated, report an incomplete review instead of claiming no issues.
+1. **Get the diff.** Run `.github/scripts/collect-review-diff.py --secret-scan` with the first
+   available Python 3.10+ launcher (`python3`, `python`, or `py -3`). This read-only helper
+   resolves the configured/default target branch and includes committed, staged, unstaged, and
+   untracked changes, enforces the configured token budgets, and appends a deterministic redacted
+   secret scan. If it fails, report its exact error and stop — never silently substitute a
+   different base. If `reviewable-files` and `unavailable-files` are both zero, say "No changes to
+   review" and stop. If `unavailable-files` is non-zero or command output is truncated, report an
+   incomplete review over the listed paths instead of claiming full coverage.
 2. **Read only what you need.** Review only `included` files in the helper's manifest and patch.
    Open a full file only when a finding genuinely
    needs surrounding context — never read whole files speculatively.
 3. **Review** across the four lenses in review-standards (bugs, conventions, error handling,
-   security), considering only changed lines.
+   security), considering only changed lines. Verify each `secret-candidate` line against the
+   diff: drop placeholders and test fixtures, report survivors as Critical security findings, and
+   do not re-hunt for secret patterns the scan already covers.
 4. **Score confidence** for each candidate 0-100 and drop everything below the strictness
    threshold. Assign Critical/Important independently from confidence, based on impact.
 5. **Report in chat** (post nowhere), grouped by severity:

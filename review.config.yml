@@ -11,6 +11,12 @@ strictness:
 local:
   base_ref: ""
 
+# Patch token budgets, enforced by the collector scripts (KiB). Oversized files are
+# reported as `unavailable` so coverage stays honest instead of overflowing context.
+limits:
+  max_file_patch_kb: 64
+  max_total_patch_kb: 512
+
 # Paths excluded from review entirely (token saver + noise reduction).
 path_filters:
   ignore:

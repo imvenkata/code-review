@@ -5,28 +5,31 @@ The script is deliberately read-only. It compares the current working tree with
 the merge base of the configured/default target branch and appends synthetic
 diffs for untracked files. It never stages files, fetches remotes, or changes
 repository configuration.
+
+Token budgets from review.config.yml `limits` are enforced here: oversized file
+patches are excluded and reported as `unavailable` so the agent reports partial
+coverage instead of overflowing its context. `--secret-scan` appends a
+deterministic, redacted credential scan of the included added lines.
 """
 from __future__ import annotations
 
 import argparse
-import ast
-import fnmatch
 import json
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from reviewlib import secretscan
+from reviewlib.config import ConfigError, ReviewConfig, is_ignored, load_config
+
 
 class DiffCollectionError(RuntimeError):
     """A user-actionable failure while discovering the review diff."""
-
-
-@dataclass(frozen=True)
-class Config:
-    base_ref: str | None
-    ignore_globs: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -60,65 +63,6 @@ def git(
     return result
 
 
-def parse_scalar(raw: str) -> str:
-    value = raw.strip()
-    if not value:
-        return ""
-    if value[0] in {'"', "'"}:
-        try:
-            parsed = ast.literal_eval(value)
-        except (SyntaxError, ValueError) as exc:
-            raise DiffCollectionError(f"invalid quoted value in review.config.yml: {value}") from exc
-        return str(parsed)
-    return value.split(" #", 1)[0].strip()
-
-
-def load_config(path: Path) -> Config:
-    if not path.exists():
-        return Config(base_ref=None, ignore_globs=())
-
-    top_level: str | None = None
-    reading_ignore = False
-    base_ref: str | None = None
-    ignore_globs: list[str] = []
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-
-        indent = len(raw_line) - len(raw_line.lstrip())
-        if indent == 0:
-            top_level = stripped[:-1] if stripped.endswith(":") else None
-            reading_ignore = False
-            continue
-
-        if top_level == "local" and indent == 2 and stripped.startswith("base_ref:"):
-            configured = parse_scalar(stripped.partition(":")[2])
-            base_ref = configured or None
-            continue
-
-        if top_level == "path_filters":
-            if indent == 2:
-                reading_ignore = stripped == "ignore:"
-                continue
-            if reading_ignore and indent >= 4 and stripped.startswith("- "):
-                pattern = parse_scalar(stripped[2:])
-                if pattern:
-                    ignore_globs.append(pattern)
-
-    return Config(base_ref=base_ref, ignore_globs=tuple(ignore_globs))
-
-
-def is_ignored(path: str, globs: tuple[str, ...]) -> bool:
-    for pattern in globs:
-        if fnmatch.fnmatch(path, pattern):
-            return True
-        if pattern.startswith("**/") and fnmatch.fnmatch(path, pattern[3:]):
-            return True
-    return False
-
-
 def verified_commit(repo: Path, ref: str) -> str | None:
     result = git(
         "rev-parse",
@@ -146,7 +90,7 @@ def automatic_base_candidates(repo: Path) -> list[str]:
     return list(dict.fromkeys(candidates))
 
 
-def resolve_base(repo: Path, cli_base: str | None, config: Config) -> tuple[str, str]:
+def resolve_base(repo: Path, cli_base: str | None, config: ReviewConfig) -> tuple[str, str]:
     explicit = cli_base or os.environ.get("REVIEW_BASE_REF") or config.base_ref
     if explicit:
         commit = verified_commit(repo, explicit)
@@ -240,52 +184,95 @@ def tracked_patch(repo: Path, merge_base: str, changes: list[Change]) -> str:
     return result.stdout.decode("utf-8", errors="replace")
 
 
-def untracked_patch(repo: Path, paths: list[str]) -> str:
-    patches: list[str] = []
-    for path in paths:
-        result = git(
-            "diff",
-            "--no-index",
-            "--no-ext-diff",
-            "--no-color",
-            "--",
-            os.devnull,
-            path,
-            cwd=repo,
-            allowed_returncodes=(0, 1),
-        )
-        patches.append(result.stdout.decode("utf-8", errors="replace"))
-    return "".join(patches)
+def untracked_patch(repo: Path, path: str) -> str:
+    result = git(
+        "diff",
+        "--no-index",
+        "--no-ext-diff",
+        "--no-color",
+        "--",
+        os.devnull,
+        path,
+        cwd=repo,
+        allowed_returncodes=(0, 1),
+    )
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+_CHUNK_PATH = re.compile(r'^diff --git (?:"?a/(?P<old>[^"\n]+)"?|.*) "?b/(?P<new>[^"\n]+)"?$')
+
+
+def split_patch(patch: str) -> list[tuple[str, str]]:
+    """Split a combined patch into (path, chunk) per file."""
+    chunks: list[tuple[str, str]] = []
+    current: list[str] = []
+    path = ""
+    for line in patch.splitlines(keepends=True):
+        if line.startswith("diff --git "):
+            if current:
+                chunks.append((path, "".join(current)))
+            current = []
+            match = _CHUNK_PATH.match(line.rstrip("\n"))
+            path = match.group("new") if match else ""
+        current.append(line)
+    if current:
+        chunks.append((path, "".join(current)))
+    return chunks
+
+
+def apply_budgets(
+    chunks: list[tuple[str, str]],
+    max_file_bytes: int,
+    max_total_bytes: int,
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Return (kept chunks, [(reason, path)] for excluded chunks)."""
+    kept: list[tuple[str, str]] = []
+    excluded: list[tuple[str, str]] = []
+    total = 0
+    for path, chunk in chunks:
+        size = len(chunk.encode("utf-8", errors="replace"))
+        if size > max_file_bytes:
+            excluded.append(("too-large", path))
+            continue
+        if total + size > max_total_bytes:
+            excluded.append(("budget-exhausted", path))
+            continue
+        total += size
+        kept.append((path, chunk))
+    return kept, excluded
 
 
 def render_manifest(
     *,
     base_ref: str,
     merge_base: str,
-    included: list[Change],
-    ignored: list[Change],
-    included_untracked: list[str],
-    ignored_untracked: list[str],
+    included: list[str],
+    ignored: list[str],
+    unavailable: list[tuple[str, str]],
+    statuses: dict[str, str],
+    secret_findings: list[secretscan.Finding] | None,
 ) -> str:
     lines = [
         "# review-diff v1",
         f"base-ref: {json.dumps(base_ref)}",
         f"merge-base: {merge_base}",
-        f"reviewable-files: {len(included) + len(included_untracked)}",
-        f"ignored-files: {len(ignored) + len(ignored_untracked)}",
-        "",
-        "## File manifest",
+        f"reviewable-files: {len(included)}",
+        f"ignored-files: {len(ignored)}",
+        f"unavailable-files: {len(unavailable)}",
     ]
-    for change in included:
-        lines.append(f"included\t{change.status}\t{json.dumps(change.display_path)}")
-    for path in included_untracked:
-        lines.append(f"included\tuntracked\t{json.dumps(path)}")
-    for change in ignored:
-        lines.append(f"ignored\t{change.status}\t{json.dumps(change.display_path)}")
-    for path in ignored_untracked:
-        lines.append(f"ignored\tuntracked\t{json.dumps(path)}")
-    lines.extend(("", "## Patch", ""))
-    return "\n".join(lines)
+    if secret_findings is not None:
+        lines.append(f"secret-candidates: {len(secret_findings)}")
+    lines.extend(("", "## File manifest"))
+    for path in included:
+        lines.append(f"included\t{statuses.get(path, 'modified')}\t{json.dumps(path)}")
+    for path in ignored:
+        lines.append(f"ignored\t{statuses.get(path, 'modified')}\t{json.dumps(path)}")
+    for reason, path in unavailable:
+        lines.append(f"unavailable\t{reason}\t{json.dumps(path)}")
+    body = "\n".join(lines) + "\n"
+    if secret_findings is not None:
+        body += "\n" + secretscan.render_section(secret_findings)
+    return body + "\n## Patch\n\n"
 
 
 def repository_root(start: Path) -> Path:
@@ -293,68 +280,104 @@ def repository_root(start: Path) -> Path:
     return Path(result.stdout.decode().strip())
 
 
-def collect(start: Path, cli_base: str | None, config_path: str) -> str:
+def collect(start: Path, cli_base: str | None, config_path: str, secret_scan: bool) -> str:
     repo = repository_root(start)
     config_file = Path(config_path)
     if not config_file.is_absolute():
         config_file = repo / config_file
-    config = load_config(config_file)
+    try:
+        config = load_config(config_file)
+        ignore_globs = config.ignore_globs
+        max_file_bytes = config.limit_bytes("max_file_patch_kb")
+        max_total_bytes = config.limit_bytes("max_total_patch_kb")
+    except ConfigError as exc:
+        raise DiffCollectionError(str(exc)) from exc
 
+    statuses: dict[str, str] = {}
     if not verified_commit(repo, "HEAD"):
-        initial_paths = indexed_paths(repo)
+        base_ref, merge_base = "<empty repository>", "<none>"
+        tracked_text = ""
+        candidate_paths = indexed_paths(repo)
+        for path in candidate_paths:
+            statuses[path] = "initial"
+        untracked = [path for path in untracked_paths(repo) if path not in candidate_paths]
+    else:
+        base_ref, base_commit = resolve_base(repo, cli_base, config)
+        merge_base_result = git("merge-base", "HEAD", base_commit, cwd=repo)
+        merge_base = merge_base_result.stdout.decode().strip()
+        if not merge_base:
+            raise DiffCollectionError(f"HEAD and {base_ref!r} do not have a merge base")
+
+        changes = tracked_changes(repo, merge_base)
+        candidate_paths = []
+        included_changes = []
+        for change in changes:
+            statuses[change.display_path] = change.status
+            if is_ignored(change.new_path, ignore_globs):
+                continue
+            candidate_paths.append(change.display_path)
+            included_changes.append(change)
+        tracked_text = tracked_patch(repo, merge_base, included_changes)
         untracked = untracked_paths(repo)
-        included_initial = [
-            path for path in initial_paths if not is_ignored(path, config.ignore_globs)
+        # Re-map ignored tracked paths for the manifest below.
+        candidate_paths = [change.display_path for change in included_changes]
+        changes_all = changes
+        ignored_tracked = [
+            change.display_path
+            for change in changes_all
+            if is_ignored(change.new_path, ignore_globs)
         ]
-        ignored_initial = [path for path in initial_paths if path not in included_initial]
-        included_untracked = [
-            path for path in untracked if not is_ignored(path, config.ignore_globs)
-        ]
-        ignored_untracked = [path for path in untracked if path not in included_untracked]
-        initial_changes = [Change("initial", path, path) for path in included_initial]
-        ignored_changes = [Change("initial", path, path) for path in ignored_initial]
-        manifest = render_manifest(
-            base_ref="<empty repository>",
-            merge_base="<none>",
-            included=initial_changes,
-            ignored=ignored_changes,
-            included_untracked=included_untracked,
-            ignored_untracked=ignored_untracked,
-        )
-        return manifest + untracked_patch(
-            repo,
-            [*included_initial, *included_untracked],
-        )
 
-    base_ref, base_commit = resolve_base(repo, cli_base, config)
-    merge_base_result = git("merge-base", "HEAD", base_commit, cwd=repo)
-    merge_base = merge_base_result.stdout.decode().strip()
-    if not merge_base:
-        raise DiffCollectionError(f"HEAD and {base_ref!r} do not have a merge base")
+    for path in untracked:
+        statuses.setdefault(path, "untracked")
 
-    changes = tracked_changes(repo, merge_base)
-    included = [
-        change for change in changes if not is_ignored(change.new_path, config.ignore_globs)
-    ]
-    ignored = [change for change in changes if change not in included]
-
-    untracked = untracked_paths(repo)
-    included_untracked = [
-        path for path in untracked if not is_ignored(path, config.ignore_globs)
-    ]
+    included_untracked = [path for path in untracked if not is_ignored(path, ignore_globs)]
     ignored_untracked = [path for path in untracked if path not in included_untracked]
+
+    if merge_base == "<none>":
+        included_tracked_display = [
+            path for path in candidate_paths if not is_ignored(path, ignore_globs)
+        ]
+        ignored_tracked = [
+            path for path in candidate_paths if path not in included_tracked_display
+        ]
+        chunks = [
+            (path, untracked_patch(repo, path))
+            for path in [*included_tracked_display, *included_untracked]
+        ]
+    else:
+        included_tracked_display = candidate_paths
+        chunks = split_patch(tracked_text)
+        chunks.extend((path, untracked_patch(repo, path)) for path in included_untracked)
+
+    kept, excluded = apply_budgets(
+        chunks,
+        max_file_bytes=max_file_bytes,
+        max_total_bytes=max_total_bytes,
+    )
+    kept_patch = "".join(chunk for _, chunk in kept)
+    excluded_paths = {path for _, path in excluded}
+
+    included_paths = [
+        path
+        for path in [*included_tracked_display, *included_untracked]
+        if path not in excluded_paths
+        and path.split(" -> ")[-1] not in excluded_paths
+    ]
+    ignored_paths = [*ignored_tracked, *ignored_untracked]
+
+    findings = secretscan.scan_patch(kept_patch) if secret_scan else None
 
     manifest = render_manifest(
         base_ref=base_ref,
         merge_base=merge_base,
-        included=included,
-        ignored=ignored,
-        included_untracked=included_untracked,
-        ignored_untracked=ignored_untracked,
+        included=included_paths,
+        ignored=ignored_paths,
+        unavailable=excluded,
+        statuses=statuses,
+        secret_findings=findings,
     )
-    return manifest + tracked_patch(repo, merge_base, included) + untracked_patch(
-        repo, included_untracked
-    )
+    return manifest + kept_patch
 
 
 def main() -> int:
@@ -365,10 +388,15 @@ def main() -> int:
         default="review.config.yml",
         help="review configuration path relative to the repository root",
     )
+    parser.add_argument(
+        "--secret-scan",
+        action="store_true",
+        help="append a deterministic redacted credential scan of included added lines",
+    )
     args = parser.parse_args()
 
     try:
-        output = collect(Path.cwd(), args.base, args.config)
+        output = collect(Path.cwd(), args.base, args.config, args.secret_scan)
     except DiffCollectionError as exc:
         print(f"[collect-review-diff] {exc}", file=sys.stderr)
         return 2

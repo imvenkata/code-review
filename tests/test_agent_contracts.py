@@ -43,7 +43,9 @@ class AgentContractTests(unittest.TestCase):
             agent_tools(agent),
             {"search/codebase", "execute/runInTerminal"},
         )
-        self.assertIn("collect-review-diff.py", agent)
+        self.assertIn("collect-review-diff.py --secret-scan", agent)
+        self.assertIn("secret-candidate", agent)
+        self.assertRegex(agent, r"(?m)^model: \[")
         self.assertIn("Run only the read-only diff collector", agent)
         self.assertNotIn("gitlab-review/", agent)
         self.assertIn("## Scope gate and greeting", agent)
@@ -69,6 +71,9 @@ class AgentContractTests(unittest.TestCase):
         }
         self.assertTrue(required_reads.issubset(tools), required_reads - tools)
 
+        self.assertIn("execute/runInTerminal", tools)
+        self.assertIn("collect-mr-evidence.py", agent)
+        self.assertIn("never put a token on the command line", agent)
         self.assertIn("requirements-traceability", agent)
         self.assertIn("gitlab-review-evidence", agent)
         self.assertIn("configured report path", agent)
@@ -193,6 +198,7 @@ class AgentContractTests(unittest.TestCase):
             ROOT / "ci/security-scanning.gitlab-ci.yml",
             *AGENTS.glob("*.agent.md"),
             *(ROOT / ".github/skills").glob("*/SKILL.md"),
+            *(ROOT / ".github/scripts").rglob("*.py"),
         ]
         forbidden = (
             "ANTHROPIC_API_KEY",
