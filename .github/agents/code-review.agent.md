@@ -5,7 +5,6 @@ argument-hint: "[strictness=low|medium|high]"
 target: vscode
 user-invocable: true
 disable-model-invocation: true
-model: ['GPT-5 mini', 'GPT-4.1']
 tools: ['search/codebase', 'execute/runInTerminal']
 ---
 

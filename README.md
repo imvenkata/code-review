@@ -54,8 +54,8 @@ There is intentionally no AI review job in `ci/`.
 7. Tune `requirements`, `security`, and `limits` in `review.config.yml` to the GitLab tier and
    controls the organization actually enforces.
 8. In VS Code Chat diagnostics, verify both agents, all three skills, and every namespaced MCP tool
-   load without errors, and adjust the `model:` list in `code-review.agent.md` to models your
-   Copilot policy enables.
+   load without errors. Agents use whatever model is selected in the Copilot chat picker — see
+   [docs/COST-CONTROLS.md](docs/COST-CONTROLS.md) for cheap-vs-premium guidance per agent.
 
 Do not overwrite a repository's existing `.vscode/mcp.json`, `.gitlab-ci.yml`, or
 `.github/copilot-instructions.md`.

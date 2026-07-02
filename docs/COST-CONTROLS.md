@@ -22,19 +22,22 @@ Every lever below is already wired into the toolkit — the point of this page i
 | Token budgets fail closed | `limits.max_file_patch_kb` / `limits.max_total_patch_kb` exclude oversized patches and report them `unavailable` instead of overflowing context (which forces expensive retries) | `review.config.yml` |
 | Noise files never enter context | `path_filters.ignore` drops lockfiles, vendored, generated, and minified files before the model sees them | `review.config.yml` |
 | No duplicate reviews | The version-3 freshness marker suppresses a full re-review when head SHA, requirement, pipeline, and scanner evidence are unchanged | `gitlab-review-evidence` |
-| Cheap model for the cheap job | `code-review` pins `model: ['GPT-5 mini', 'GPT-4.1']` — 0x/low-cost models are fine for a single-pass pre-push gate | agent frontmatter |
+| Cheap model for the cheap job | Pick a low-cost/included model in the Copilot chat picker for routine `code-review` runs — a single-pass pre-push gate does not need a premium model | chat model picker |
 | Single-turn agents | Both agents are one-pass by contract: no clarifying questions mid-run, no background subagents, no re-reading files | agent bodies |
 | Scanners replace model effort | GitLab Secret Detection and SAST run in CI for free (compute-wise); the agent verifies their reports instead of re-deriving them | `ci/security-scanning.gitlab-ci.yml` |
 | Short instruction files | Agent bodies, skills, and instruction files are input tokens on every run; keep conventions specific and brief | `.github/instructions/` |
 
 ## Model selection
 
-- **`code-review` (developer, many runs/day):** pinned to a prioritized list of low-cost models.
-  Edit the `model:` array in `code-review.agent.md` to whatever your Copilot policy enables;
-  remove the key to use the user's picker choice.
-- **`review-mr` (reviewer, few runs/day, higher stakes):** intentionally not pinned. Evidence
-  reasoning and requirements tracing benefit from a stronger model; the run is already compacted
-  by the collector, so even a premium model consumes modest credits.
+Neither agent hardcodes a `model:` — model names churn faster than this toolkit, and the Copilot
+chat picker (governed by organization model policy) is the single place models are chosen. As
+guidance, not configuration:
+
+- **`code-review` (developer, many runs/day):** a low-cost/included model is usually enough for a
+  single-pass pre-push gate; save premium models for tricky changes.
+- **`review-mr` (reviewer, few runs/day, higher stakes):** evidence reasoning and requirements
+  tracing benefit from a stronger model; the run is already compacted by the collector, so even a
+  premium model consumes modest credits.
 - Never route reviews through a model API key — the only AI surface is Copilot itself.
 
 ## What a run should look like

@@ -35,6 +35,9 @@ class AgentContractTests(unittest.TestCase):
             self.assertIn("target: vscode", agent)
             self.assertIn("user-invocable: true", agent)
             self.assertIn("disable-model-invocation: true", agent)
+            # Models are chosen in the Copilot chat picker, never hardcoded:
+            # pinned names go stale as models churn.
+            self.assertNotRegex(agent, r"(?m)^model:")
 
     def test_local_agent_is_read_only_and_uses_current_vscode_tools(self) -> None:
         agent = (AGENTS / "code-review.agent.md").read_text(encoding="utf-8")
@@ -45,7 +48,6 @@ class AgentContractTests(unittest.TestCase):
         )
         self.assertIn("collect-review-diff.py --secret-scan", agent)
         self.assertIn("secret-candidate", agent)
-        self.assertRegex(agent, r"(?m)^model: \[")
         self.assertIn("Run only the read-only diff collector", agent)
         self.assertNotIn("gitlab-review/", agent)
         self.assertIn("## Scope gate and greeting", agent)
