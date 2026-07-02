@@ -1,5 +1,5 @@
 {
-  "// note": "EXAMPLE — merge the dedicated `gitlab-review` server block into your own VS Code .vscode/mcp.json or user settings. Do not overwrite an existing file. The package is pinned for reproducibility; upgrade it deliberately after compatibility testing. The deny policy hides every write tool except the review workflow's explicit allow-list, and every allowed write requires `_confirmed: true`. GITLAB_READ_ONLY_MODE must remain false for review comments/actions, so use a short-lived token belonging to a user with the minimum project role your approval policy permits.",
+  "// note": "EXAMPLE — merge the dedicated `gitlab-review` server block into your own VS Code .vscode/mcp.json or user settings. Do not overwrite an existing file. The package is pinned for reproducibility; upgrade it deliberately after compatibility testing. The server exposes read-only MR, repository, pipeline, issue, and work-item evidence plus exactly two confirmed writes: a new review thread and a new MR summary note. Use a short-lived token with the minimum project role required to comment.",
   "servers": {
     "gitlab-review": {
       "type": "stdio",
@@ -10,8 +10,9 @@
         "GITLAB_API_URL": "https://gitlab.yourco.com/api/v4",
         "GITLAB_READ_ONLY_MODE": "false",
         "GITLAB_TOOLSETS": "merge_requests,repositories,pipelines",
-        "GITLAB_DENIED_TOOLS_REGEX": "^(?!get_|list_|search_|validate_|mr_discussions$|create_note$|create_merge_request_thread$|create_merge_request_discussion_note$|update_merge_request_note$|resolve_merge_request_thread$|approve_merge_request$|unapprove_merge_request$|update_merge_request$).*",
-        "GITLAB_TOOL_POLICY_APPROVE": "create_note,create_merge_request_thread,create_merge_request_discussion_note,update_merge_request_note,resolve_merge_request_thread,approve_merge_request,unapprove_merge_request,update_merge_request",
+        "GITLAB_TOOLS": "get_issue,get_work_item",
+        "GITLAB_DENIED_TOOLS_REGEX": "^(?!get_|list_|search_|validate_|mr_discussions$|create_merge_request_thread$|create_merge_request_note$).*",
+        "GITLAB_TOOL_POLICY_APPROVE": "create_merge_request_thread,create_merge_request_note",
         "USE_GITLAB_WIKI": "false",
         "USE_MILESTONE": "false",
         "USE_PIPELINE": "true"

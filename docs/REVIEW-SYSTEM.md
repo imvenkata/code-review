@@ -1,198 +1,106 @@
-# Enterprise MR Review System (Copilot + GitLab)
+# Review system operating guide
 
-Two features, one shared brain — modeled on how Claude Code splits local review from PR review,
-adapted to GitHub Copilot in VS Code talking to GitLab via `@zereight/mcp-gitlab`.
+## Roles
 
-> Full architecture reference (components, flows, capability ownership): [ARCHITECTURE.md](ARCHITECTURE.md).
+### Developer: `code-review`
 
-## File map
+Use before pushing. It reviews the complete local change set and reports findings only in chat. It
+does not contact GitLab, edit files, run arbitrary commands, or run tests.
 
-```
-.github/
-  instructions/
-    conventions.instructions.md            # coding-convention EXAMPLE (project-owned; replace with yours)
-  skills/
-    review-standards/SKILL.md              # ← SHARED BRAIN (rubric, scoring, output) — library skill
-  agents/
-    code-review.agent.md                   # FEATURE 1 — local diff, pre-push (target: vscode)
-    review-mr.agent.md                     # FEATURE 2 — GitLab MR, manual VS Code agent
-  scripts/
-    collect-review-diff.py                 # read-only complete local-diff collector
-review.config.yml                          # target branch, path filters, posting limits, strictness
-ci/
-  review.py                                # Phase 2 runner: Anthropic API + prompt caching
-  ai-review.gitlab-ci.yml                  # Phase 2: includable AI-review CI template
-  security-scanning.gitlab-ci.yml          # GitLab Secret Detection + SAST (deterministic layer)
-docs/gitlab-mcp.example.json               # restricted gitlab-review MCP EXAMPLE (merge, don't copy)
-tests/                                     # deterministic helper, marker, anchor, and agent-contract tests
+### Reviewer: `review-mr`
+
+Use for an open GitLab MR with:
+
+```text
+project=<namespace/path or numeric ID> mr=<IID>
 ```
 
-> **File ownership (for reuse):** everything above is toolkit code you copy as-is, except two
-> **project-owned** files — `.github/instructions/*.instructions.md` (your coding rules; shipped here
-> as a replaceable example) and `.github/copilot-instructions.md` (your project's own main
-> instructions, which differ per project). The toolkit **does not ship or touch**
-> `copilot-instructions.md`; the review features are self-contained in the skill, agents, and local
-> diff helper and need nothing in it. Full table in the [README](../README.md).
+Add `story_project` and `story_iid` when the MR description does not identify one primary story.
+The reviewer agent posts review threads and a summary, but never takes approval or lifecycle
+actions.
 
-## Which Copilot primitive, and why
+## Evidence contract
 
-The Copilot surface has three customization primitives plus instructions — each is the right tool
-for a different job here:
+A complete MR review requires:
 
-| Primitive | File | Used for |
-|---|---|---|
-| **Custom agent** (`.agent.md`) | `.github/agents/*` | The two **features** — a persona + constrained tool set (you pick the model in chat). Both shipped profiles target VS Code; `review-mr` also disables model invocation so only a human can select the write-capable agent. A separately tested profile is required for cloud/CLI use. |
-| **Agent Skill** (`SKILL.md`) | `.github/skills/*` | The **shared brain**. Progressive disclosure (only the `description` sits in context; body loads on demand) = token-efficient. Portable across Copilot, Claude Code, Cursor, Codex. |
-| **Instructions** (`.instructions.md`) | `.github/instructions/*` | Path-scoped **coding conventions** the reviewer enforces (`applyTo` globs). |
-| **`copilot-instructions.md`** | `.github/` — *project-owned* | The adopting project's own main instructions; differs per project. **Not part of this toolkit** — it ships none, and the review features add nothing here (their logic lives in the skill + agents). The reviewer may *read* it as one optional source of the project's conventions. |
+1. Complete eligible diff coverage.
+2. A readable primary story/work item when `requirements.require_story` is true.
+3. Every `required` pipeline/scanner control to be present and readable for the exact MR head.
+4. Every present optional scanner job to complete and publish its configured report artifact.
 
-> **Maturity caveat:** Agent Skills shipped late-2025 and were initially experimental. Confirm your
-> org's Copilot/VS Code build exposes them as GA before standardizing; otherwise generate thin
-> `.prompt.md` wrappers that invoke the same logic as a fallback.
+Coverage and pass/fail are distinct. A review can be complete and `Blocked` because it fully read a
+failed required pipeline or security report with findings. Missing required evidence, or broken
+evidence from a present optional scanner, produces a partial marker and `Evidence incomplete`.
+An absent optional scanner is reported as `Not evaluated` and does not block a complete review.
 
-**The "common skill":** both agents are deliberately thin. The 0-100 rubric, the false-positive
-exclusion list, confidence threshold, impact severity, and the output contract live once in
-[review-standards/SKILL.md](../.github/skills/review-standards/SKILL.md). The agents apply it; the
-CI runner reads its body verbatim as the cached prompt prefix. Tune review behavior in one place;
-the two features and the CI gate can never drift.
+Configure each control in `review.config.yml` with:
 
-## The two features
+- `required` — absence/failure blocks completeness;
+- `optional` — inspect when present; absence is non-blocking;
+- `disabled` — do not inspect.
 
-| | `code-review` (Feature 1) | `review-mr` (Feature 2) |
-|---|---|---|
-| Target | Local working-tree / branch diff | A GitLab MR (by project + iid) |
-| When | Before you push | On an open MR (manual now, CI later) |
-| Output | Findings in chat | Summary note + inline threads on the MR |
-| GitLab MCP | none (git only) | read + note + reviewer-action tools (approve, reply, resolve, update — server from `.vscode/mcp.json`) |
-| Incremental | n/a | exact-head skip; safe small-delta optimization with full-review fallback |
-| Cost profile | cheapest (no network, free model) | one agent pass, one summary note + the inline threads |
+## GitLab MCP contract
 
-Both apply `review-standards`, `conventions.instructions.md`, and `review.config.yml`. Invoke an
-agent from the Chat view dropdown or the `/agents` menu.
+Use the pinned server configuration in `gitlab-mcp.example.json`.
 
-## Deployment to target repos (VS Code)
+Read tools:
 
-GitLab has no org-wide `.github` repo mechanism, and Copilot reads from the open workspace, so
-distribute one of two ways:
+- MR identity/diffs/notes: `get_merge_request`, `list_merge_request_changed_files`,
+  `get_merge_request_file_diff`, `get_merge_request_notes`, `get_branch_diffs`;
+- repository context: `get_file_contents`;
+- requirements: `get_work_item`, `get_issue`;
+- pipeline/security: `list_merge_request_pipelines`, `get_pipeline`, `list_pipeline_jobs`,
+  `list_job_artifacts`, `get_job_artifact_file`.
 
-1. **Per-repo (simplest):** copy the review features — `.github/skills/`, `.github/agents/`,
-   `.github/scripts/`, `review.config.yml`, and (for the CI gate) `ci/` — into each repo, then
-   `include` both
-   `/ci/security-scanning.gitlab-ci.yml` (Secret Detection + SAST) and `/ci/ai-review.gitlab-ci.yml`
-   (AI review) from your own `.gitlab-ci.yml`. **Don't** copy
-   `.github/copilot-instructions.md` (each project keeps its own) or overwrite `.vscode/mcp.json`
-   (merge the `gitlab-review` block from `docs/gitlab-mcp.example.json` instead); adapt
-   `.github/instructions/*.instructions.md` to the project. Sync with a script.
-2. **Central folder (DRY):** keep this repo checked out locally and point VS Code at it — user/workspace
-   `settings.json`:
-   ```jsonc
-   "chat.agentFilesLocations":       { "/path/to/code-review/.github/agents": true },
-   "chat.agentSkillsLocations":      { "/path/to/code-review/.github/skills": true },
-   "chat.instructionsFilesLocations":{ "/path/to/code-review/.github/instructions": true }
-   ```
-   Per-repo `review.config.yml`, `conventions.instructions.md`, and
-   `.github/scripts/collect-review-diff.py` still live in each repo because the local agent executes
-   the helper from the target workspace.
+Write tools:
 
-## gitlab-mcp tooling — constrain at both boundaries
+- `create_merge_request_thread`;
+- `create_merge_request_note`.
 
-The server exposes a broad GitLab surface, so an agent allow-list alone is insufficient for a
-workspace-wide MCP process. The example creates a dedicated, version-pinned `gitlab-review` server.
-Its deny regex hides non-review writes, and its confirmation policy requires `_confirmed: true` for
-every remaining write. The explicit, scoped review request authorizes review posts; approval and
-other reviewer actions require their own confirmation. The agent also applies a namespaced
-allow-list. Tools used:
+Do not add approval, merge, issue mutation, repository write, branch write, note edit, resolution,
+or MR-update tools to this profile.
 
-- Read: `get_merge_request`, `list_merge_request_changed_files`, `get_merge_request_file_diff`,
-  `get_file_contents`, `get_merge_request_notes`, `mr_discussions`, `get_branch_diffs`,
-  `get_merge_request_approval_state`, `list_merge_request_pipelines`, `get_pipeline`
-- Write (review): `create_merge_request_thread` (inline, needs `position` with base/head/start SHA),
-  `create_note` (summary + source/state marker)
-- Reviewer actions (interactive, on request): `approve_merge_request`, `unapprove_merge_request`,
-  `create_merge_request_discussion_note` (reply), `update_merge_request_note`,
-  `resolve_merge_request_thread`, `update_merge_request` (labels/title/description/assignees).
-  Merging and repository/branch writes are hidden by server policy.
+## GitLab CI controls
 
-Merge the example's `gitlab-review` block into `.vscode/mcp.json`; retain the exact package pin
-until a newer version passes the compatibility smoke test.
+Include `ci/security-scanning.gitlab-ci.yml` for GitLab Secret Detection and SAST. When a scanner is
+required or present, the agent verifies its job and artifact; it does not replace the scanner.
+The reusable toolkit defaults both scanners to `optional`; repositories with enforced controls
+should override their modes to `required`.
 
-## Token / credit playbook (the #1 constraint)
+Default Secret Detection reliably targets structured secrets but does not promise generic
+plaintext-password detection in every context. If that is a policy requirement, security owners
+must deploy and test an organization-approved custom ruleset on a GitLab tier that supports it.
 
-- **Run on included models** (GPT-5 mini / GPT-4.1 / GPT-4o) — 0 credits on paid plans. The agents
-  don't pin a model (so they stay reusable as models change) — pick an included/free one in the chat
-  dropdown; bump to **Auto** (10% discount) or a premium model only for hard diffs.
-- **One agent pass per review.** In agent mode only your prompt is billed; the internal tool loop
-  (fetch → review → post) is free. Never split into multiple invocations.
-- **Avoid the built-in Copilot "code review"** button: model multiplier **13**, and it can't touch
-  GitLab MRs anyway.
-- **Progressive disclosure (skills)** keeps the rubric out of context until a review runs.
-- **Diff-only reading** — never pull whole files speculatively (enforced in both agents and the runner).
-- **Eligibility gate + complete source-specific marker** mean drafts, trivial MRs, and
-  already-reviewed revisions cost almost nothing.
-- **Confidence filter ≥80** cuts output tokens and human re-review round-trips.
-- **Trim the MCP tool surface** (above) — recurring per-request saving.
-- **Don't ask the LLM to do a linter's job** — let GitLab CI run linters/SAST; the reviewer ignores
-  anything a linter would catch.
+Dependency scanning is tier/version dependent and is not silently assumed. When enabled for the
+organization, add its required job/report contract explicitly to `review.config.yml` and
+`gitlab-review-evidence`.
 
-## CodeRabbit parity (what we match / skip / defer)
+## Rollout checklist
 
-| CodeRabbit capability | Here |
-|---|---|
-| Line-by-line inline comments | ✅ `create_merge_request_thread` |
-| One-click fix suggestions | ✅ GitLab ```suggestion blocks |
-| PR summary / walkthrough | ✅ summary note in `review-mr` + the CI runner |
-| Incremental review on new commits | ✅ source-specific complete/partial markers + safe delta fallback |
-| Config-as-code, path filters | ✅ `review.config.yml` |
-| Path-based instructions | ✅ `.github/instructions/*.instructions.md` |
-| Review strictness profiles | ✅ `strictness` arg (low/medium/high) |
-| SAST / secret detection | ✅ GitLab Secret Detection + SAST (`ci/security-scanning.gitlab-ci.yml`); the reviewer is the second net, not a duplicate |
-| Pipeline / CI status awareness | ✅ `review-mr` reports MR pipeline status and gates approval on it |
-| Auto-trigger on every MR | ✅ Phase 2 — `ci/ai-review.gitlab-ci.yml` on `merge_request_event` |
-| "Learnings" memory from feedback | 🔶 curate a `learnings` resource manually; online learning needs infra |
-| Cross-file architectural diagrams | ❌ skipped (low ROI, high tokens) |
+1. Replace the placeholder coding-conventions file with enforceable project rules.
+2. Confirm the GitLab instance version and licensing for work items and security features.
+3. Validate the pinned MCP server's `tools/list` against the agent frontmatter.
+4. Verify the token cannot merge or push and has only the minimum commenting role.
+5. Disable global MCP/terminal auto-approval through enterprise policy where available.
+6. Run a fixture MR containing:
+   - one linked story with explicit acceptance criteria;
+   - changed production and test files;
+   - successful SAST and Secret Detection artifacts;
+   - a safe seeded scanner fixture in an isolated test project.
+7. Exercise missing-story, failed-pipeline, missing-artifact, oversized-diff, renamed-file, and
+   removed-line paths.
+8. Confirm partial reviews never produce `Ready for human decision`.
+9. Confirm no provider key or direct model client exists in repository or CI variables.
 
-## Phase 2 — automated CI gate
+## Distribution
 
-[ci/ai-review.gitlab-ci.yml](../ci/ai-review.gitlab-ci.yml) — an includable CI template (add
-`include: local: '/ci/ai-review.gitlab-ci.yml'` to your pipeline) — runs
-[ci/review.py](../ci/review.py) on `merge_request_event`.
-The runner: deterministic eligibility gate (draft / bot-authored / already-reviewed head) → fetch
-diffs (diff-only, path-filtered, with explicit coverage accounting) → one Anthropic call with the
-`review-standards` body as a
-**prompt-cached** prefix and structured-output findings → drop findings below the confidence
-threshold and any line/side it can't anchor to the diff → post inline threads followed by a summary
-with a source/state marker. Truncated, oversized, or failed files produce a partial review that
-cannot suppress a retry. The summary ends with a short "next actions" footer
-(open in the `review-mr` agent, or GitLab quick actions like `/approve`) — the CI bot is advisory and
-never self-approves. Customize the footer via `review.next_actions` in `review.config.yml`.
+Per-repository distribution is the most predictable:
 
-**Defense in depth:** also `include` [ci/security-scanning.gitlab-ci.yml](../ci/security-scanning.gitlab-ci.yml)
-— GitLab **Secret Detection + SAST** are the reliable, deterministic control for secrets and known
-vulnerabilities; the AI reviewer complements them (logic-level security) rather than duplicating them.
-Separately, the interactive `review-mr` agent reads the MR's pipeline status and **won't approve over
-a red or pending pipeline**.
+- copy the agents, skills, local diff helper, config, and security template;
+- keep project instructions project-owned;
+- merge, never overwrite, the MCP configuration;
+- sync toolkit updates through normal reviewed repository changes.
 
-Setup: add CI/CD variables `ANTHROPIC_API_KEY` and `REVIEW_BOT_TOKEN` (a project/group access token,
-`api` scope), both masked. Optional: `REVIEW_MODEL` (default `claude-opus-4-8`; set `claude-sonnet-5`
-or `claude-haiku-4-5` to cut cost), `REVIEW_EFFORT`, `REVIEW_STRICTNESS`. The runner auto-omits
-`thinking`/`effort` for models that don't support them (e.g. Haiku 4.5), so switching to a cheaper
-model won't 400.
-
-> **Caching caveat:** prompt caching needs a **≥4096-token** stable prefix on Opus to actually cache.
-> Until `review-standards` + conventions are that large, the prefix silently won't cache — the bigger
-> cost lever there is model choice. The runner prints `cache_read=<n>` so you can see when it kicks in.
->
-> The runner reviews the full MR diff guarded by a complete CI marker. True per-commit incremental
-> review (compare API between the last-reviewed sha and head) is a natural next step — the IDE
-> `review-mr` agent already does this via `get_branch_diffs`.
-
-## Design notes
-
-- **The split is right.** Local pre-push review and authoritative MR review have different triggers,
-  outputs, and cost profiles. Keep them as two agents.
-- **Shared logic lives in the skill, never duplicated in an agent** — the single most important rule
-  for not drifting as the system grows.
-- **Don't fan out into multiple billable agents** the way Claude Code does — here that multiplies
-  credits. The four lenses (bugs/conventions/errors/security) run inside one pass.
-- **CI is the enforcement point; the IDE agents are the fast feedback loop** — same brain, three
-  entry points (local agent, MR agent, CI runner).
+Use VS Code Chat customization diagnostics after every rollout to detect ignored or unavailable
+tool names. VS Code ignores tools that are not available, so a loaded agent is not by itself proof
+that its complete MCP contract is usable.

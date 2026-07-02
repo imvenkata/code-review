@@ -28,16 +28,18 @@ When in doubt, stay silent.
 4. **Security-sensitive changes**: authz/authn gaps, injection (SQL/command/path), SSRF, path
    traversal, unsafe deserialization, and missing input validation at a trust boundary. Also flag
    **hardcoded secrets** on changed lines — passwords, API keys, tokens, private keys, connection
-   strings, high-entropy literals. (Secrets and known-vuln patterns are caught deterministically by
-   GitLab Secret Detection + SAST in CI; you are the *second net* for what those miss and for
-   logic-level security a scanner can't see.)
+   strings, high-entropy literals. For an MR review, deterministic scanner results are verified
+   separately by the `gitlab-review-evidence` skill; this lens covers what scanners miss and
+   logic-level security they cannot infer.
 
 ## What NOT to flag (apply aggressively)
 
 - Pre-existing issues on lines the diff did not touch.
-- Routine findings a linter, type checker, formatter, compiler, or the CI security scanners
-  (SAST / Secret Detection / dependency scanning) would catch — assume CI runs those. (Still surface
-  a hardcoded secret you happen to see, in case scanning isn't enabled on this repo.)
+- Routine findings a linter, type checker, formatter, or compiler would catch when verified CI
+  evidence shows that control ran for the reviewed revision. Do not assume a control exists.
+- Verbatim duplicates of SAST or Secret Detection findings already reported in the MR evidence
+  section. Still surface a hardcoded secret or security defect independently visible on a changed
+  line when the report is missing or the logic-level risk needs explanation.
 - Pedantic nitpicks a senior engineer would not comment on.
 - "Add more tests / docs / logging" unless a stated convention requires it.
 - Changes that are plausibly intentional and consistent with the broader change.

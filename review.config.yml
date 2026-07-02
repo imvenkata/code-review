@@ -32,10 +32,30 @@ review:
   enable_suggestions: true     # add ```suggestion blocks for one-click fixes
   skip_drafts: true            # skip draft / WIP MRs
   skip_bot_authored: true      # loop guard: skip MRs authored by the review bot
-  # next_actions: "..."        # optional: override the summary-note "next actions" footer ("" to omit)
-  # a complete summary carries a source-specific head-sha marker; partial reviews never suppress retries
+  # A complete summary carries a head + requirement + pipeline freshness marker.
+  # Partial reviews never suppress retries.
 
-# Model choice is NOT read from this file. It is set where each entry point runs:
-#   - IDE agents: the model you pick in the Copilot chat dropdown (the agents don't pin one)
-#   - CI runner:  the REVIEW_MODEL env var in ci/ai-review.gitlab-ci.yml (default: claude-opus-4-8)
-# Guidance: keep the heavy path on included/free models (0 credits); bump only for large/hard diffs.
+# MR requirement evidence. A missing or ambiguous story makes the review partial.
+requirements:
+  require_story: true
+
+# Current-head CI and security evidence policy.
+# Modes:
+#   required - absence, failure, or unreadable evidence blocks a complete decision
+#   optional - absence is reported as "Not evaluated"; present evidence is fully validated
+#   disabled - do not inspect this control
+security:
+  pipeline:
+    mode: required
+  secret_detection:
+    mode: optional
+    artifact: gl-secret-detection-report.json
+  sast:
+    mode: optional
+    artifact: gl-sast-report.json
+  block_severities:
+    - critical
+    - high
+
+# Model selection remains inside the organization's approved GitHub Copilot surface.
+# This toolkit never calls a model API directly.

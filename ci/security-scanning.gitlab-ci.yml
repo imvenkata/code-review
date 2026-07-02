@@ -1,18 +1,24 @@
-# GitLab-native deterministic security scanning — the *reliable* control for secrets and known
-# vulnerabilities. Pair it with the AI review (ci/ai-review.gitlab-ci.yml) for defense in depth:
-# these scanners do detection; the review-mr agent covers logic-level security a scanner can't see.
+# GitLab-native deterministic security scanning. The review-mr Copilot agent applies each scanner's
+# required/optional/disabled policy, verifies present jobs against the current MR head, and reads
+# their JSON report artifacts; it does not infer a clean result from a green pipeline alone.
 #
 # Add to YOUR .gitlab-ci.yml (order doesn't matter):
 #   include:
 #     - local: '/ci/security-scanning.gitlab-ci.yml'   # Secret Detection + SAST (this file)
-#     - local: '/ci/ai-review.gitlab-ci.yml'           # AI code review
 #
 # Notes:
 #   - The scanning JOBS run on any GitLab tier and write JSON reports as artifacts.
 #   - The rich MR security widget + approval gating on findings require GitLab Ultimate.
 #   - These templates default their jobs to `stage: test`; ensure your pipeline has a `test` stage
 #     (or override `stage:` via the documented SAST/Secret-Detection variables).
-#   - Both run on merge request and default-branch pipelines out of the box.
+#   - Pipeline-source behavior varies with the target repo workflow and GitLab version. Validate
+#     that both jobs run in the MR pipeline for the exact head before enabling fail-closed evidence.
+#   - Default Secret Detection targets structured secrets. Generic plaintext-password detection
+#     needs an organization-approved custom ruleset (GitLab Ultimate) and should be tested against
+#     your languages/config formats before enforcement.
+#   - Dependency Scanning is intentionally not included because current GitLab support is
+#     tier/version dependent. Enable the supported template or security policy for your instance,
+#     then extend review.config.yml and the MR evidence skill to require its report.
 
 include:
   - template: Security/Secret-Detection.gitlab-ci.yml

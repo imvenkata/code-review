@@ -1,78 +1,98 @@
-# Copilot + GitLab Code Review Toolkit
+# Copilot + GitLab review agents
 
-Reusable, **model-agnostic** code-review features for teams on **GitHub Copilot + GitLab**, built as
-Copilot **agents** + an **Agent Skill** (portable across Copilot, Claude Code, Cursor, Codex), with an
-optional **CI** gate. Two features share one review "brain":
+Two GitHub Copilot custom agents for teams whose repositories and agile work live in GitLab:
 
-- **`code-review`** agent — review your local diff before you push (findings in chat).
-- **`review-mr`** agent — review a GitLab MR and post findings back, then **approve / reply / resolve /
-  label from the chat window** (no window switching); reports MR **pipeline status** and won't approve
-  over a red pipeline. Needs a GitLab **project ID** + **MR ID**.
+- **`code-review`** — developer pre-push review of the complete local change set. Read-only and
+  local; findings stay in chat.
+- **`review-mr`** — reviewer workflow for one GitLab MR. It traces the MR to a story/work item,
+  evaluates acceptance criteria, reviews changed code, verifies current-head pipeline and security
+  report evidence, and posts review threads plus one summary.
 
-Architecture reference: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · design, deployment & CodeRabbit
-parity: [docs/REVIEW-SYSTEM.md](docs/REVIEW-SYSTEM.md).
+The only AI execution surface is the organization's approved GitHub Copilot environment. This
+toolkit does not call any model API, run a headless AI CI job, or require a model-provider key.
+GitLab access is through pinned [`@zereight/mcp-gitlab`](https://github.com/zereight/gitlab-mcp).
 
-Prerequisites for the IDE agents: Git, Python 3.10+ for the read-only local diff helper, a VS Code
-build with Copilot custom agents/skills/MCP enabled, and GitLab credentials for `review-mr`.
+Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · operating and rollout guide:
+[docs/REVIEW-SYSTEM.md](docs/REVIEW-SYSTEM.md).
 
-## What's here — and who owns what
+## Components
 
-| File(s) | Ownership | How to adopt |
-|---|---|---|
-| `.github/skills/review-standards/SKILL.md` | **Toolkit** — the shared brain | copy as-is |
-| `.github/agents/code-review.agent.md`, `review-mr.agent.md` | **Toolkit** — the two features | copy as-is |
-| `.github/scripts/collect-review-diff.py` | **Toolkit** — deterministic local diff collector | copy as-is with the agents |
-| `ci/review.py`, `ci/ai-review.gitlab-ci.yml` | **Toolkit** — optional CI gate | copy `ci/`; add `include: local: '/ci/ai-review.gitlab-ci.yml'` to your `.gitlab-ci.yml` |
-| `ci/security-scanning.gitlab-ci.yml` | **Toolkit** — deterministic scanners | `include:` it — GitLab Secret Detection + SAST (the reliable secret/vuln control) |
-| `docs/gitlab-mcp.example.json` | **Configure** (merge, don't copy) | add the pinned, policy-restricted `gitlab-review` block to `.vscode/mcp.json` |
-| `review.config.yml` | **Configure** | tune local target branch, path filters, posting limits, strictness |
-| `.github/instructions/*.instructions.md` | **Project-owned** (example shipped) | replace with your real coding rules, or delete |
-| `.github/copilot-instructions.md` | **Project-owned — NOT shipped** | keep your own; the features need nothing in it |
+| Path | Purpose |
+|---|---|
+| `.github/agents/code-review.agent.md` | Local developer review agent |
+| `.github/agents/review-mr.agent.md` | Evidence-based GitLab MR review agent |
+| `.github/skills/review-standards/SKILL.md` | Shared changed-line review rubric |
+| `.github/skills/requirements-traceability/SKILL.md` | Story/epic and acceptance-criteria evidence |
+| `.github/skills/gitlab-review-evidence/SKILL.md` | CI/security evidence, trust boundaries, verdicts, freshness |
+| `.github/scripts/collect-review-diff.py` | Read-only complete local-diff collector |
+| `.github/instructions/*.instructions.md` | Project-owned, path-scoped coding conventions |
+| `review.config.yml` | Path filters, strictness, evidence requirements, comment limits |
+| `docs/gitlab-mcp.example.json` | Pinned, least-privilege VS Code MCP configuration |
+| `ci/security-scanning.gitlab-ci.yml` | GitLab Secret Detection and SAST templates |
 
-> **The review features are self-contained in the skill, agents, and local diff helper.** They
-> require **no** edits to your project's `copilot-instructions.md` (which differs project to
-> project). Drop the toolkit files in without touching project instructions. The reviewer may
-> *read* instruction files as a source of conventions, but never writes to them.
+There is intentionally no AI review job in `ci/`.
 
-## Adopt in a repo (VS Code)
+## Adopt in a repository
 
-1. Copy `.github/skills/`, `.github/agents/`, `.github/scripts/`, and — for the CI gate — `ci/`;
-   then `include` both
-   `/ci/security-scanning.gitlab-ci.yml` and `/ci/ai-review.gitlab-ci.yml` from your `.gitlab-ci.yml`.
-   Do **not** copy `.github/copilot-instructions.md`, and **merge** (don't overwrite) `.vscode/mcp.json`.
-2. Point gitlab-mcp at your instance — merge the `gitlab-review` block from
-   `docs/gitlab-mcp.example.json` into `.vscode/mcp.json` (URL + token). Keep the package pin and
-   server-side tool policies; do not replace it with an unrestricted shared server.
-3. *(Optional)* add coding rules in `.github/instructions/*.instructions.md`; set
-   `local.base_ref` when the target is not the discoverable remote default; tune the remaining
-   `review.config.yml` controls.
-4. *(CI gate)* add masked CI/CD vars `ANTHROPIC_API_KEY` + `REVIEW_BOT_TOKEN` (project/group token, `api` scope).
-5. Reload, then pick **code-review** / **review-mr** from the Copilot agents dropdown (`/agents`).
+1. Copy `.github/agents/`, `.github/skills/`, `.github/scripts/`, `review.config.yml`, and the
+   GitLab-native security template.
+2. Replace or remove the placeholder `.github/instructions/conventions.instructions.md`.
+3. Merge the `gitlab-review` server from `docs/gitlab-mcp.example.json` into `.vscode/mcp.json`.
+   Keep the package pin and tool policy until a newer version passes compatibility testing.
+4. Point `GITLAB_API_URL` at your GitLab instance and use a short-lived token with the minimum role
+   needed to read project evidence and create MR comments.
+5. Include `/ci/security-scanning.gitlab-ci.yml` from the target repository's `.gitlab-ci.yml`.
+6. Tune `requirements` and `security` in `review.config.yml` to the GitLab tier and controls the
+   organization actually enforces.
+7. In VS Code Chat diagnostics, verify both agents, all three skills, and every namespaced MCP tool
+   load without errors.
 
-Validate this toolkit checkout before rollout:
+Do not overwrite a repository's existing `.vscode/mcp.json`, `.gitlab-ci.yml`, or
+`.github/copilot-instructions.md`.
+
+## Use
+
+Select `code-review` for local changes.
+
+Select `review-mr` with:
+
+```text
+project=group/service mr=482
+```
+
+When the MR description does not contain exactly one unambiguous primary story reference, provide:
+
+```text
+project=group/service mr=482 story_project=group/service story_iid=731
+```
+
+Both agents are scope-locked. Greetings, unclear prompts, and unrelated questions return a short
+capability greeting without calling tools; they do not act as general-purpose chat agents.
+
+The MR summary reports:
+
+- requirement source and acceptance-criteria matrix;
+- reviewed, ignored, and unavailable diff coverage;
+- Critical/Important changed-line findings;
+- current-head pipeline policy and job status;
+- per-scanner policy plus redacted SAST and Secret Detection evidence (`Not evaluated` when an
+  optional scanner is absent);
+- one verdict: `Blocked`, `Needs changes`, `Evidence incomplete`, or
+  `Ready for human decision`.
+
+The agent never approves, merges, resolves, labels, assigns, closes, or edits the MR. Human approval
+and merge enforcement remain in GitLab.
+
+Pipeline, Secret Detection, and SAST controls use `required`, `optional`, or `disabled` modes in
+`review.config.yml`. Optional controls are inspected when present; absence is non-blocking but is
+never reported as clean.
+
+## Validate this toolkit
 
 ```bash
 PYTHONPYCACHEPREFIX=/tmp/code-review-pycache python3 -m unittest discover -s tests -v
 python3 -m json.tool docs/gitlab-mcp.example.json >/dev/null
 ```
 
-Sharing one copy across many repos instead of copying per-repo? See the **central folder** option in
-[docs/REVIEW-SYSTEM.md](docs/REVIEW-SYSTEM.md#deployment-to-target-repos-vs-code); the local diff
-helper and per-repo configuration still need to exist in each target workspace.
-
-## Design principles
-
-- **Model-agnostic:** the agents don't pin a model — you pick it in the Copilot chat dropdown, so they
-  survive model churn. Only the headless CI runner names a model (`REVIEW_MODEL`, default overridable).
-- **Token/credit efficient:** included/free models for the heavy path, diff-only reading, an eligibility
-  gate, a confidence filter, batched MR file retrieval, and prompt caching in CI.
-- **One brain, three entry points:** local agent, MR agent, and CI runner all apply the same
-  `review-standards` skill — tune review behavior in one file, nothing drifts.
-- **Defense in depth:** GitLab Secret Detection + SAST catch secrets/vulns deterministically, and the
-  pipeline must be green to approve; the LLM reviewer covers logic-level issues a scanner can't see —
-  no LLM is asked to be a scanner (more reliable *and* cheaper).
-- **Fail closed on coverage:** incomplete/truncated diffs produce a partial marker and never a
-  merge-safety conclusion; only source-specific complete markers suppress repeat reviews.
-
-Migration note: legacy `<!-- ai-review head=... -->` notes are intentionally ignored, so the first
-run after upgrading performs one fresh review and establishes a versioned source/state marker.
+The tests validate local diff collection, agent/MCP tool alignment, least-privilege writes,
+requirements/security evidence contracts, and the absence of a direct model API runtime.
