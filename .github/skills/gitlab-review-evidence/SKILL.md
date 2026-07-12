@@ -31,15 +31,21 @@ both sources; a value is never more trusted because a script printed it.
 Read `security.pipeline.mode` from `review.config.yml`. Valid modes are `required`, `optional`, and
 `disabled`; an unknown value is a configuration error.
 
-1. Use `list_merge_request_pipelines` and retain only pipelines whose SHA equals the current MR head.
+1. Prefer the MR's own `head_pipeline` (returned by `get_merge_request` and the collector):
+   GitLab maintains it as the pipeline for the current head, including merged-results pipelines
+   whose SHA is a transient merged commit rather than the MR head SHA. Without it, use
+   `list_merge_request_pipelines` and retain pipelines whose SHA equals the current MR head or
+   whose ref is the MR's `refs/merge-requests/<iid>/merge` ref.
 2. Select the newest matching pipeline deterministically by pipeline ID/creation time, then call
-   `get_pipeline`.
+   `get_pipeline`. When the selected pipeline's SHA differs from the MR head, record it explicitly
+   as a merged-results head pipeline; it remains current-head evidence.
 3. Use `list_pipeline_jobs` with pagination and `include_retried: false`. Record every job's name,
    stage, status, and ID.
 4. A pipeline-level `success` proves only that required jobs completed according to CI policy. It
    does not prove that security reports contain zero findings.
-5. Running, pending, failed, canceled, skipped, manual-blocked, missing, or wrong-SHA pipelines are
-   not successful evidence.
+5. Running, pending, failed, canceled, skipped, manual-blocked, or missing pipelines are not
+   successful evidence; neither is a wrong-SHA pipeline that is not the recorded merged-results
+   head pipeline.
 
 Mode behavior:
 

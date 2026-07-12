@@ -80,7 +80,9 @@ Pipeline, Secret Detection, and SAST each have one policy mode:
 
 The aggregate pipeline status and job/report results remain separate evidence:
 
-- Every selected pipeline/report must belong to the current MR head.
+- Every selected pipeline/report must belong to the current MR head. Merged-results pipelines are
+  matched through GitLab's `head_pipeline` field (or the MR merge ref) because their SHA is a
+  transient merged commit, and the mismatch is recorded explicitly.
 - A present scanner job must complete successfully and produce its configured readable artifact,
   even in optional mode.
 - Secret values are never copied into comments.

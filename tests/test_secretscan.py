@@ -128,6 +128,37 @@ class SecretScanTests(unittest.TestCase):
         self.assertTrue(all(f.rule == "basic-auth-header" for f in findings))
         self.assertNotIn(encoded, secretscan.render_section(findings))
 
+    def test_detects_additional_platform_token_shapes(self) -> None:
+        stripe = "sk_live_" + "4eC39HqLyjWDarjtT1zd"
+        npm = "npm_" + "a1B2c3D4" * 4 + "wXyZ"
+        azure_key = "Qw8xTr41pz" * 5 + "=="
+        sendgrid = "SG." + "a1B2c3D4e5F6g7H8" + "." + "i9J0k1L2m3N4o5P6"
+        openai = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+        findings = secretscan.scan_patch(
+            patch_for(
+                [
+                    f'stripe = "{stripe}"',
+                    f'registry_token = "{npm}"',
+                    f'conn = "DefaultEndpointsProtocol=https;AccountKey={azure_key};"',
+                    f'mailer = "{sendgrid}"',
+                    f'client = OpenAI(api_key="{openai}")',
+                ]
+            )
+        )
+
+        rules = {finding.rule for finding in findings}
+        for expected in (
+            "stripe-secret-key",
+            "npm-token",
+            "azure-account-key",
+            "sendgrid-api-key",
+            "openai-api-key",
+        ):
+            self.assertIn(expected, rules)
+        rendered = secretscan.render_section(findings)
+        for value in (stripe, npm, azure_key, sendgrid, openai):
+            self.assertNotIn(value, rendered)
+
     def test_high_entropy_literal_requires_entropy(self) -> None:
         low_entropy = "a" * 48
         self.assertEqual(

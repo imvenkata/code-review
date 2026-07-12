@@ -33,6 +33,7 @@ report parsing) runs in read-only Python scripts so model tokens are spent only 
 | `.github/scripts/reviewlib/` | Shared config parser and deterministic secret scanner |
 | `.github/instructions/*.instructions.md` | Project-owned, path-scoped coding conventions |
 | `review.config.yml` | Path filters, strictness, token budgets, evidence requirements, comment limits |
+| `scripts/adopt.py` | Install/update the toolkit in another repository without touching project-owned files |
 | `docs/gitlab-mcp.example.json` | Pinned, least-privilege VS Code MCP configuration |
 
 The toolkit ships no CI jobs: company pipeline templates are organization-owned and out of scope.
@@ -42,7 +43,12 @@ deterministic regex + entropy password/secret pre-scan that needs no CI at all.
 
 ## Adopt in a repository
 
-1. Copy `.github/agents/`, `.github/skills/`, `.github/scripts/`, and `review.config.yml`.
+1. From this toolkit checkout, run `python3 scripts/adopt.py <target-repo>` — it syncs the
+   toolkit-owned agents, skills, and collector scripts, creates `review.config.yml` and the
+   placeholder instructions file only when absent, and never touches a project's own skills,
+   instructions, or `.vscode/mcp.json`. (Manual alternative: copy `.github/agents/`,
+   `.github/skills/`, `.github/scripts/`, and `review.config.yml`.) Re-run it to roll out
+   toolkit updates.
 2. Replace or remove the placeholder `.github/instructions/conventions.instructions.md`.
 3. Merge the `gitlab-review` server from `docs/gitlab-mcp.example.json` into `.vscode/mcp.json`.
    Keep the package pin and tool policy until a newer version passes compatibility testing.
