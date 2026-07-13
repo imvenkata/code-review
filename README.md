@@ -28,9 +28,10 @@ report parsing) runs in read-only Python scripts so model tokens are spent only 
 | `.github/skills/review-standards/SKILL.md` | Shared changed-line review rubric |
 | `.github/skills/requirements-traceability/SKILL.md` | Story/epic and acceptance-criteria evidence |
 | `.github/skills/gitlab-review-evidence/SKILL.md` | CI/security evidence, trust boundaries, verdicts, freshness |
-| `.github/scripts/collect-review-diff.py` | Read-only local-diff collector (budgets + `--secret-scan`) |
+| `.github/skills/codebase-aware-review/SKILL.md` | Cross-file impact rubric for the local agent's `mode=deep` |
+| `.github/scripts/collect-review-diff.py` | Read-only local-diff collector (budgets + `--secret-scan` + `--codebase-context`) |
 | `.github/scripts/collect-mr-evidence.py` | One-pass read-only GitLab MR evidence bundle |
-| `.github/scripts/reviewlib/` | Shared config parser and deterministic secret scanner |
+| `.github/scripts/reviewlib/` | Shared config parser, deterministic secret scanner, and git-based code-graph builder |
 | `.github/instructions/*.instructions.md` | Project-owned, path-scoped coding conventions |
 | `.github/review.config.yml` | Path filters, strictness, token budgets, evidence requirements, comment limits |
 | `install.sh` + `install.manifest` | Install/update the toolkit in another repo; manifest-scoped, never touches project-owned files |
@@ -83,7 +84,7 @@ deterministic regex + entropy password/secret pre-scan that needs no CI at all.
    defaults); otherwise leave the modes `optional` — absence is reported as `Not evaluated`.
 7. Tune `requirements`, `security`, and `limits` in `.github/review.config.yml` to the GitLab tier and
    controls the organization actually enforces.
-8. In VS Code Chat diagnostics, verify both agents, all three skills, and every namespaced MCP tool
+8. In VS Code Chat diagnostics, verify both agents, all four skills, and every namespaced MCP tool
    load without errors. Agents use whatever model is selected in the Copilot chat picker — see
    [docs/COST-CONTROLS.md](docs/COST-CONTROLS.md) for cheap-vs-premium guidance per agent.
 
@@ -93,6 +94,20 @@ Do not overwrite a repository's existing `.vscode/mcp.json`, `.gitlab-ci.yml`, o
 ## Use
 
 Select `code-review` for local changes.
+
+For a codebase-aware pass that also checks how the change affects the rest of the repo — callers a
+signature or behavior change could break, plus files that historically change alongside it — add
+`mode=deep`:
+
+```text
+review my local changes mode=deep
+```
+
+Deep mode is opt-in and costs more tokens. The collector builds a bounded `## Codebase context`
+section deterministically from git (`git grep -w` for references to changed symbols + `git log`
+co-change), the **codebase-aware-review** skill reviews cross-file impact and must ground each
+finding in real code, and the `deep:` block in `.github/review.config.yml` caps its size. Standard
+review is unchanged and remains the default.
 
 Select `review-mr` with:
 

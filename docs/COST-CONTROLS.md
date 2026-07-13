@@ -21,9 +21,10 @@ Every lever below is already wired into the toolkit — the point of this page i
 | Deterministic pre-work is free | Path filtering, patch budgeting, artifact JSON parsing, and the secret regex/entropy scan run in Python, not in the model | both collectors |
 | Token budgets fail closed | `limits.max_file_patch_kb` / `limits.max_total_patch_kb` exclude oversized patches and report them `unavailable` instead of overflowing context (which forces expensive retries) | `.github/review.config.yml` |
 | Noise files never enter context | `path_filters.ignore` drops lockfiles, vendored, generated, and minified files before the model sees them | `.github/review.config.yml` |
+| Deep mode is opt-in and capped | `mode=deep` costs more (wider context + relaxed single-pass); it runs only when asked, builds its impact neighborhood deterministically in git (no embeddings/index to host), and the `deep:` block caps context size, files, refs/symbol, and history mined | `.github/review.config.yml` `deep:` |
 | No duplicate reviews | The version-3 freshness marker suppresses a full re-review when head SHA, requirement, pipeline, and scanner evidence are unchanged | `gitlab-review-evidence` |
 | Cheap model for the cheap job | Pick a low-cost/included model in the Copilot chat picker for routine `code-review` runs — a single-pass pre-push gate does not need a premium model | chat model picker |
-| Single-turn agents | Both agents are one-pass by contract: no clarifying questions mid-run, no background subagents, no re-reading files | agent bodies |
+| Single-turn agents | Both agents are one-pass by contract: no clarifying questions mid-run, no background subagents, no re-reading files (the sole exception is `code-review mode=deep`, which may read neighborhood files bounded by the grounding rule) | agent bodies |
 | Scanners replace model effort | The organization's CI scanners run for free (compute-wise); the agent verifies their published reports instead of re-deriving them | org CI + `.github/review.config.yml` `security:` |
 | Short instruction files | Agent bodies, skills, and instruction files are input tokens on every run; keep conventions specific and brief | `.github/instructions/` |
 

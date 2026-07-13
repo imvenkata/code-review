@@ -10,14 +10,22 @@ Goal: reusable across many projects. Latest session: re-assess readiness + fix g
 
 ## Architecture
 - `.github/agents/` — two Copilot agents (vscode target, no hardcoded models).
-- `.github/skills/` — review-standards, requirements-traceability, gitlab-review-evidence.
+- `.github/skills/` — review-standards, requirements-traceability, gitlab-review-evidence,
+  codebase-aware-review (cross-file impact lens for `code-review mode=deep` only).
 - `.github/scripts/` — read-only collectors (`collect-review-diff.py`, `collect-mr-evidence.py`)
-  + `reviewlib` (config parser, deterministic redacted secret scan).
-- `.github/review.config.yml` — strictness, path filters, token budgets, pipeline/scanner modes.
+  + `reviewlib` (config parser, deterministic redacted secret scan, git-based code-graph builder
+  `codegraph.py` for deep mode).
+- `.github/review.config.yml` — strictness, path filters, token budgets, pipeline/scanner modes,
+  `deep:` codebase-context caps.
+- Deep mode (CodeRabbit-style codebase-aware diff review, local agent only): `collect-review-diff.py
+  --codebase-context` builds a bounded impact neighborhood from git (grep refs + log co-change);
+  model grounds each cross-file finding. No embeddings/vector DB; semantic gap-fill via
+  `search/codebase`. `review-mr` + shared `review-standards` untouched.
 - `docs/gitlab-mcp.example.json` — pinned zereight/mcp-gitlab@2.1.28, deny-regex, 2 confirmed writes.
 - `install.sh` + `install.manifest` — multi-repo install/update; manifest-scoped, lock-tracked,
   clones via `--repo` (supersedes the retired `scripts/adopt.py`).
-- `tests/` — 45 unittest tests (incl. `test_install.py`); run: `python3 -m unittest discover -s tests`.
+- `tests/` — 58 unittest tests (incl. `test_install.py`, `test_codegraph.py`); run:
+  `python3 -m unittest discover -s tests`.
 
 ## Implemented (history)
 - Earlier sessions: agents hardened, script-first evidence collection, token/credit controls,

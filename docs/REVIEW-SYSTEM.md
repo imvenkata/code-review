@@ -7,6 +7,16 @@
 Use before pushing. It reviews the complete local change set and reports findings only in chat. It
 does not contact GitLab, edit files, run arbitrary commands, or run tests.
 
+Add `mode=deep` for a **codebase-aware** pass. The collector's `--codebase-context` flag appends a
+deterministic `## Codebase context` section — references to changed symbols (`git grep -w`, i.e.
+the callers a change can break) and files that historically co-change (`git log --name-only`) —
+bounded by the `deep:` block in `.github/review.config.yml`. The `codebase-aware-review` skill
+adds the cross-file impact lens and a grounding rule: a cross-file finding is reported only after
+the referenced code is verified against the real source (the section's matching is by symbol name
+and therefore approximate). Deep mode may open the neighborhood files and use `search/codebase`,
+but stays read-only, chat-only, and never touches GitLab. Standard mode is the default and is
+unchanged. `review-mr` and the shared `review-standards` rubric are unaffected by deep mode.
+
 ### Reviewer: `review-mr`
 
 Use for an open GitLab MR with:

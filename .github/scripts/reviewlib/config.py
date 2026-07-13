@@ -81,6 +81,14 @@ def loads(text: str) -> dict:
 
 _LIMIT_DEFAULTS = {"max_file_patch_kb": 64, "max_total_patch_kb": 512}
 
+_DEEP_DEFAULTS = {
+    "context_budget_kb": 96,
+    "max_files": 40,
+    "max_refs_per_symbol": 20,
+    "co_change_lookback": 200,
+}
+_DEEP_FLAG_DEFAULTS = {"enable_co_change": True, "enable_semantic": True}
+
 
 @dataclass(frozen=True)
 class ReviewConfig:
@@ -132,6 +140,24 @@ class ReviewConfig:
         if mode not in {"required", "optional", "disabled"}:
             raise ConfigError("security.pipeline.mode must be required|optional|disabled")
         return mode
+
+    def deep_int(self, name: str) -> int:
+        """Return a positive integer knob from the `deep:` section (or its default)."""
+        raw = self.get("deep", name, default=_DEEP_DEFAULTS[name])
+        try:
+            value = int(str(raw))
+        except ValueError as exc:
+            raise ConfigError(f"deep.{name} must be an integer") from exc
+        if value <= 0:
+            raise ConfigError(f"deep.{name} must be positive")
+        return value
+
+    def deep_flag(self, name: str) -> bool:
+        """Return a boolean knob from the `deep:` section (or its default)."""
+        raw = self.get("deep", name, default=_DEEP_FLAG_DEFAULTS[name])
+        if isinstance(raw, bool):
+            return raw
+        return str(raw).strip().lower() in {"true", "1", "yes", "on"}
 
 
 def load_config(path: Path) -> ReviewConfig:

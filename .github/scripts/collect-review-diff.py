@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from reviewlib import secretscan
+from reviewlib import codegraph, secretscan
 from reviewlib.config import ConfigError, ReviewConfig, is_ignored, load_config
 
 
@@ -251,6 +251,7 @@ def render_manifest(
     unavailable: list[tuple[str, str]],
     statuses: dict[str, str],
     secret_findings: list[secretscan.Finding] | None,
+    codebase_context: str | None = None,
 ) -> str:
     lines = [
         "# review-diff v1",
@@ -272,6 +273,8 @@ def render_manifest(
     body = "\n".join(lines) + "\n"
     if secret_findings is not None:
         body += "\n" + secretscan.render_section(secret_findings)
+    if codebase_context:
+        body += "\n" + codebase_context
     return body + "\n## Patch\n\n"
 
 
@@ -280,7 +283,13 @@ def repository_root(start: Path) -> Path:
     return Path(result.stdout.decode().strip())
 
 
-def collect(start: Path, cli_base: str | None, config_path: str, secret_scan: bool) -> str:
+def collect(
+    start: Path,
+    cli_base: str | None,
+    config_path: str,
+    secret_scan: bool,
+    codebase_context: bool = False,
+) -> str:
     repo = repository_root(start)
     config_file = Path(config_path)
     if not config_file.is_absolute():
@@ -368,6 +377,24 @@ def collect(start: Path, cli_base: str | None, config_path: str, secret_scan: bo
 
     findings = secretscan.scan_patch(kept_patch) if secret_scan else None
 
+    context_section: str | None = None
+    if codebase_context and merge_base != "<none>":
+        try:
+            context = codegraph.build_context(
+                repo,
+                kept,
+                {path for path, _ in kept},
+                ignore_globs,
+                max_files=config.deep_int("max_files"),
+                max_refs_per_symbol=config.deep_int("max_refs_per_symbol"),
+                co_change_lookback=config.deep_int("co_change_lookback"),
+                enable_co_change=config.deep_flag("enable_co_change"),
+                budget_bytes=config.deep_int("context_budget_kb") * 1024,
+            )
+        except ConfigError as exc:
+            raise DiffCollectionError(str(exc)) from exc
+        context_section = codegraph.render_section(context)
+
     manifest = render_manifest(
         base_ref=base_ref,
         merge_base=merge_base,
@@ -376,6 +403,7 @@ def collect(start: Path, cli_base: str | None, config_path: str, secret_scan: bo
         unavailable=excluded,
         statuses=statuses,
         secret_findings=findings,
+        codebase_context=context_section,
     )
     return manifest + kept_patch
 
@@ -393,10 +421,18 @@ def main() -> int:
         action="store_true",
         help="append a deterministic redacted credential scan of included added lines",
     )
+    parser.add_argument(
+        "--codebase-context",
+        action="store_true",
+        help="append a bounded codebase-context section (references to changed "
+        "symbols + co-changing files) for codebase-aware 'deep' review",
+    )
     args = parser.parse_args()
 
     try:
-        output = collect(Path.cwd(), args.base, args.config, args.secret_scan)
+        output = collect(
+            Path.cwd(), args.base, args.config, args.secret_scan, args.codebase_context
+        )
     except DiffCollectionError as exc:
         print(f"[collect-review-diff] {exc}", file=sys.stderr)
         return 2

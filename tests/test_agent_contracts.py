@@ -55,6 +55,28 @@ class AgentContractTests(unittest.TestCase):
         self.assertIn("Hi, I'm the Code Review agent.", agent)
         self.assertIn("weather queries", agent)
 
+    def test_deep_mode_wired_into_local_agent_only(self) -> None:
+        code_review = (AGENTS / "code-review.agent.md").read_text(encoding="utf-8")
+        self.assertIn("mode=deep", code_review)
+        self.assertIn("--codebase-context", code_review)
+        self.assertIn("codebase-aware-review", code_review)
+
+        # The deep-mode skill ships.
+        self.assertTrue(
+            (ROOT / ".github/skills/codebase-aware-review/SKILL.md").is_file()
+        )
+
+        # review-mr is untouched: deep mode never leaks into the MR surface.
+        review_mr = (AGENTS / "review-mr.agent.md").read_text(encoding="utf-8")
+        for token in ("mode=deep", "--codebase-context", "codebase-aware-review"):
+            self.assertNotIn(token, review_mr)
+
+        # The shared rubric keeps its changed-lines-only mandate, untouched by deep mode.
+        review_standards = (
+            ROOT / ".github/skills/review-standards/SKILL.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("only the lines changed in the diff", review_standards)
+
     def test_mr_agent_has_requirement_and_security_evidence_reads(self) -> None:
         agent = (AGENTS / "review-mr.agent.md").read_text(encoding="utf-8")
         tools = agent_tools(agent)

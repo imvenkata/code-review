@@ -99,6 +99,35 @@ class CollectReviewDiffTests(unittest.TestCase):
         self.assertNotIn("+ignored", result.stdout)
         self.assertIn("+reviewed = True", result.stdout)
 
+    def test_codebase_context_surfaces_callers_of_changed_symbol(self) -> None:
+        (self.repo / "helper.py").write_text(
+            "def compute_total(x):\n    return x\n", encoding="utf-8"
+        )
+        (self.repo / "user.py").write_text(
+            "from helper import compute_total\ncompute_total(3)\n", encoding="utf-8"
+        )
+        run("git", "add", "-A", cwd=self.repo)
+        run("git", "commit", "-m", "add helper", cwd=self.repo)
+        # Change the signature; the caller in user.py now passes too few args.
+        (self.repo / "helper.py").write_text(
+            "def compute_total(x, rate):\n    return x * rate\n", encoding="utf-8"
+        )
+
+        result = self.collect("--codebase-context")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("## Codebase context", result.stdout)
+        self.assertIn("references\tcompute_total\tuser.py:2", result.stdout)
+        self.assertIn("truncated: 0", result.stdout)
+
+    def test_codebase_context_absent_without_flag(self) -> None:
+        (self.repo / "helper.py").write_text(
+            "def compute_total(x):\n    return x\n", encoding="utf-8"
+        )
+        result = self.collect()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("## Codebase context", result.stdout)
+
     def test_explicit_base_overrides_repository_config(self) -> None:
         (self.repo / ".github" / "review.config.yml").write_text(
             'local:\n  base_ref: "missing-target"\n',

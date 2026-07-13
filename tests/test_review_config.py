@@ -24,6 +24,9 @@ class ReviewConfigTests(unittest.TestCase):
         self.assertEqual(config.scanner("sast"), ("optional", "gl-sast-report.json"))
         self.assertEqual(config.limit_bytes("max_file_patch_kb"), 64 * 1024)
         self.assertEqual(config.limit_bytes("max_total_patch_kb"), 512 * 1024)
+        self.assertEqual(config.deep_int("max_files"), 40)
+        self.assertEqual(config.deep_int("co_change_lookback"), 200)
+        self.assertTrue(config.deep_flag("enable_co_change"))
 
     def test_defaults_when_sections_are_missing(self) -> None:
         config = ReviewConfig(loads("strictness:\n  default: medium\n"))
@@ -32,6 +35,23 @@ class ReviewConfigTests(unittest.TestCase):
         self.assertEqual(config.pipeline_mode, "optional")
         self.assertEqual(config.scanner("sast"), ("disabled", ""))
         self.assertEqual(config.limit_bytes("max_file_patch_kb"), 64 * 1024)
+        # deep: absent -> documented defaults
+        self.assertEqual(config.deep_int("context_budget_kb"), 96)
+        self.assertEqual(config.deep_int("max_refs_per_symbol"), 20)
+        self.assertTrue(config.deep_flag("enable_semantic"))
+
+    def test_deep_overrides_and_validation(self) -> None:
+        config = ReviewConfig(loads("deep:\n  max_files: 5\n  enable_co_change: false\n"))
+        self.assertEqual(config.deep_int("max_files"), 5)
+        self.assertFalse(config.deep_flag("enable_co_change"))
+
+        bad = ReviewConfig(loads("deep:\n  max_files: lots\n"))
+        with self.assertRaises(ConfigError):
+            bad.deep_int("max_files")
+
+        nonpositive = ReviewConfig(loads("deep:\n  co_change_lookback: 0\n"))
+        with self.assertRaises(ConfigError):
+            nonpositive.deep_int("co_change_lookback")
 
     def test_rejects_invalid_modes_and_limits(self) -> None:
         bad_mode = ReviewConfig(loads("security:\n  pipeline:\n    mode: sometimes\n"))

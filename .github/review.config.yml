@@ -34,6 +34,19 @@ path_filters:
     - "**/pnpm-lock.yaml"
     - "**/yarn.lock"
 
+# Codebase-aware "deep" review (local code-review agent, `mode=deep` only).
+# Opt-in and bounded: builds a small impact neighborhood of the change from git
+# (references to changed symbols + files that historically co-change) so cross-file
+# breakage is caught. Off unless the developer asks for deep mode; these caps keep
+# its added token cost bounded. Standard review ignores this section entirely.
+deep:
+  context_budget_kb: 96       # max size of the codebase-context section
+  max_files: 40               # max distinct related files surfaced
+  max_refs_per_symbol: 20     # max git-grep hits kept per changed symbol
+  co_change_lookback: 200     # commits of history mined for co-change
+  enable_co_change: true      # include historically co-changing files
+  enable_semantic: true       # let deep mode use the editor's search/codebase tool
+
 # MR posting limits.
 review:
   max_inline_comments: 15      # cap inline threads; overflow summarized

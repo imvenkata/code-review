@@ -17,9 +17,11 @@ OWNED_SAMPLE = [
     ".github/skills/review-standards/SKILL.md",
     ".github/skills/requirements-traceability/SKILL.md",
     ".github/skills/gitlab-review-evidence/SKILL.md",
+    ".github/skills/codebase-aware-review/SKILL.md",
     ".github/scripts/collect-review-diff.py",
     ".github/scripts/collect-mr-evidence.py",
     ".github/scripts/reviewlib/secretscan.py",
+    ".github/scripts/reviewlib/codegraph.py",
 ]
 SEEDS = [
     ".github/review.config.yml",
