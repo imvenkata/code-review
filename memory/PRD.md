@@ -15,8 +15,9 @@ Goal: reusable across many projects. Latest session: re-assess readiness + fix g
   + `reviewlib` (config parser, deterministic redacted secret scan).
 - `review.config.yml` — strictness, path filters, token budgets, pipeline/scanner modes.
 - `docs/gitlab-mcp.example.json` — pinned zereight/mcp-gitlab@2.1.28, deny-regex, 2 confirmed writes.
-- `scripts/adopt.py` — multi-repo install/update (new, Jun 2026).
-- `tests/` — 41 unittest tests; run: `python3 -m unittest discover -s tests`.
+- `install.sh` + `install.manifest` — multi-repo install/update; manifest-scoped, lock-tracked,
+  clones via `--repo` (supersedes the retired `scripts/adopt.py`).
+- `tests/` — 45 unittest tests (incl. `test_install.py`); run: `python3 -m unittest discover -s tests`.
 
 ## Implemented (history)
 - Earlier sessions: agents hardened, script-first evidence collection, token/credit controls,

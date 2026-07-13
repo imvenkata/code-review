@@ -118,9 +118,10 @@ organization, add its required job/report contract explicitly to `review.config.
 
 Per-repository distribution is the most predictable:
 
-- run `python3 scripts/adopt.py <target-repo>` from the toolkit checkout (or copy the agents,
-  skills, collector scripts, and config manually); re-run it to sync toolkit updates — it
-  overwrites only toolkit-owned paths and never a project's own config, skills, or instructions;
+- run `install.sh --repo <toolkit-clone-url> --ref <tag>` from the adopting repo's root (or run a
+  local checkout's `install.sh` inside the target); re-run it to sync toolkit updates — it
+  overwrites only manifest-declared toolkit paths, never a project's own config, skills, or
+  instructions, and prunes files dropped upstream using the committed lock file;
 - keep project instructions project-owned;
 - merge, never overwrite, the MCP configuration;
 - sync toolkit updates through normal reviewed repository changes.

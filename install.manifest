@@ -1,0 +1,21 @@
+# Paths install.sh manages in adopting repositories.
+#
+# [owned]  Toolkit-owned. Overwritten on every install/update; files that
+#          disappear upstream are deleted from the target (only files the
+#          installer recorded in the lock file are ever deleted, so files a
+#          team adds under these directories are left alone).
+# [seed]   Project-owned. Copied on first install only, never overwritten
+#          or re-created afterwards.
+#
+# .vscode/mcp.json is special-cased by install.sh: on first install the pinned
+# `gitlab-review` server is merged in without touching other servers.
+# .gitlab-ci.yml and .github/copilot-instructions.md are never written.
+
+[owned]
+.github/agents
+.github/skills
+.github/scripts
+
+[seed]
+review.config.yml
+.github/instructions/conventions.instructions.md

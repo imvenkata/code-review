@@ -33,7 +33,7 @@ report parsing) runs in read-only Python scripts so model tokens are spent only 
 | `.github/scripts/reviewlib/` | Shared config parser and deterministic secret scanner |
 | `.github/instructions/*.instructions.md` | Project-owned, path-scoped coding conventions |
 | `review.config.yml` | Path filters, strictness, token budgets, evidence requirements, comment limits |
-| `scripts/adopt.py` | Install/update the toolkit in another repository without touching project-owned files |
+| `install.sh` + `install.manifest` | Install/update the toolkit in another repo; manifest-scoped, never touches project-owned files |
 | `docs/gitlab-mcp.example.json` | Pinned, least-privilege VS Code MCP configuration |
 
 The toolkit ships no CI jobs: company pipeline templates are organization-owned and out of scope.
@@ -43,15 +43,26 @@ deterministic regex + entropy password/secret pre-scan that needs no CI at all.
 
 ## Adopt in a repository
 
-1. From this toolkit checkout, run `python3 scripts/adopt.py <target-repo>` — it syncs the
-   toolkit-owned agents, skills, and collector scripts, creates `review.config.yml` and the
-   placeholder instructions file only when absent, and never touches a project's own skills,
-   instructions, or `.vscode/mcp.json`. (Manual alternative: copy `.github/agents/`,
-   `.github/skills/`, `.github/scripts/`, and `review.config.yml`.) Re-run it to roll out
-   toolkit updates.
+1. From the adopting repository's root, run the installer with your toolkit clone URL. It clones
+   the toolkit into a temp dir, copies **only** the toolkit-owned agents, skills, and collector
+   scripts, seeds `review.config.yml` and the placeholder instructions file when absent, and
+   merges the pinned `gitlab-review` MCP server into `.vscode/mcp.json` without touching other
+   servers. Nothing else lands in your repo — `install.sh`, the manifest, tests, and docs stay
+   out of the target.
+
+   ```bash
+   install.sh --repo git@gitlab.yourco.com:group/code-review.git --ref v0.1.0
+   ```
+
+   (From a local checkout instead: run `/path/to/code-review/install.sh` inside the target repo.)
+   Re-run to roll out updates; `install.sh --check` reports drift and exits 1 if behind,
+   `--dry-run` previews without writing. State is recorded in
+   `.github/.code-review-toolkit.lock` — commit it.
 2. Replace or remove the placeholder `.github/instructions/conventions.instructions.md`.
-3. Merge the `gitlab-review` server from `docs/gitlab-mcp.example.json` into `.vscode/mcp.json`.
-   Keep the package pin and tool policy until a newer version passes compatibility testing.
+3. The installer already merged the `gitlab-review` server into `.vscode/mcp.json` (or created the
+   file from `docs/gitlab-mcp.example.json`). Keep the package pin and tool policy until a newer
+   version passes compatibility testing; if the installer reported `manual`, add the server block
+   from `docs/gitlab-mcp.example.json` by hand.
 4. Point `GITLAB_API_URL` at your GitLab instance and use a short-lived token with the minimum role
    needed to read project evidence and create MR comments.
 5. Export the same values in the reviewer's shell (`GITLAB_TOKEN` + `GITLAB_API_URL`) so
