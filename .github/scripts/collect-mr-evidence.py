@@ -118,6 +118,33 @@ def find_story_refs(description: str, mr_project: str) -> list[tuple[str, str]]:
     return list(dict.fromkeys(refs))
 
 
+# --- pipeline selection -------------------------------------------------------
+
+def select_head_pipeline(
+    client: GitLab, project_path: str, mr_iid: str, mr: dict, head_sha: str
+) -> tuple[dict | None, str]:
+    """Pick the current-head pipeline.
+
+    GitLab's own `head_pipeline` field is authoritative and also covers
+    merged-results pipelines, whose SHA is a transient merged commit rather
+    than the MR head SHA. Fall back to listing MR pipelines and matching the
+    head SHA or the MR's merge ref.
+    """
+    head_pipeline = mr.get("head_pipeline") or {}
+    if head_pipeline.get("id"):
+        return head_pipeline, "head_pipeline"
+    pipelines = client.get_paged(f"{project_path}/merge_requests/{mr_iid}/pipelines")
+    merge_ref = f"refs/merge-requests/{mr_iid}/merge"
+    matching = [
+        p
+        for p in pipelines
+        if str(p.get("sha", "")) == head_sha or str(p.get("ref", "")) == merge_ref
+    ]
+    if not matching:
+        return None, "none"
+    return max(matching, key=lambda p: int(p.get("id", 0))), "listed-pipelines"
+
+
 # --- scanner report handling ------------------------------------------------
 
 def summarize_report(raw: bytes) -> dict:
@@ -275,18 +302,25 @@ def build_bundle(
     pipeline_available = False
     if pipeline_mode != "disabled":
         try:
-            pipelines = client.get_paged(f"{project_path}/merge_requests/{mr_iid}/pipelines")
-            matching = [p for p in pipelines if str(p.get("sha", "")) == head_sha]
-            if not matching:
+            selected, selection = select_head_pipeline(
+                client, project_path, mr_iid, mr, head_sha
+            )
+            if not selected:
                 bundle.add("status: none-for-current-head")
             else:
-                newest = max(matching, key=lambda p: int(p.get("id", 0)))
-                pipeline = client.get_json(f"{project_path}/pipelines/{newest['id']}")
+                pipeline = client.get_json(f"{project_path}/pipelines/{selected['id']}")
+                pipeline_sha = str(pipeline.get("sha", ""))
                 bundle.add(_kv("pipeline-id", int(pipeline.get("id", 0))))
-                bundle.add(_kv("sha", str(pipeline.get("sha", ""))))
+                bundle.add(_kv("sha", pipeline_sha))
                 bundle.add(_kv("status", str(pipeline.get("status", ""))))
+                bundle.add(f"selection: {selection}")
+                if pipeline_sha and pipeline_sha != head_sha:
+                    bundle.add(
+                        "note: pipeline sha differs from the MR head; GitLab reports it as the "
+                        "current head pipeline (merged-results). Treat as current-head evidence."
+                    )
                 jobs = client.get_paged(
-                    f"{project_path}/pipelines/{newest['id']}/jobs",
+                    f"{project_path}/pipelines/{selected['id']}/jobs",
                     {"include_retried": "false"},
                 )
                 pipeline_available = True

@@ -198,6 +198,54 @@ class BuildBundleTests(unittest.TestCase):
         self.assertIn(f'+TOKEN = "{DIFF_TOKEN}"', output)
         self.assertNotIn("padline", output)
 
+    def test_merged_results_head_pipeline_is_used(self) -> None:
+        merged_sha = "mergedcommit999"
+        mr_with_head = dict(
+            MR, head_pipeline={"id": 901, "sha": merged_sha, "status": "success"}
+        )
+        output = build(
+            {
+                "/api/v4/projects/group%2Fapp/merge_requests/42": mr_with_head,
+                "/api/v4/projects/group%2Fapp/pipelines/901": {
+                    "id": 901,
+                    "sha": merged_sha,
+                    "status": "success",
+                },
+                "/api/v4/projects/group%2Fapp/pipelines/901/jobs": JOBS,
+            }
+        )
+
+        self.assertIn("pipeline-id: 901", output)
+        self.assertIn("selection: head_pipeline", output)
+        self.assertIn("note: pipeline sha differs from the MR head", output)
+        self.assertIn("SAST: mode=optional state=Clean", output)
+
+    def test_merge_ref_pipeline_matches_without_head_pipeline_field(self) -> None:
+        merged_only = [
+            {"id": 899, "sha": "oldsha", "status": "success"},
+            {
+                "id": 902,
+                "sha": "mergedcommit123",
+                "ref": "refs/merge-requests/42/merge",
+                "status": "success",
+            },
+        ]
+        output = build(
+            {
+                "/api/v4/projects/group%2Fapp/merge_requests/42/pipelines": merged_only,
+                "/api/v4/projects/group%2Fapp/pipelines/902": {
+                    "id": 902,
+                    "sha": "mergedcommit123",
+                    "status": "success",
+                },
+                "/api/v4/projects/group%2Fapp/pipelines/902/jobs": JOBS,
+            }
+        )
+
+        self.assertIn("pipeline-id: 902", output)
+        self.assertIn("selection: listed-pipelines", output)
+        self.assertIn("note: pipeline sha differs from the MR head", output)
+
     def test_missing_head_pipeline_fails_closed(self) -> None:
         output = build(
             {"/api/v4/projects/group%2Fapp/merge_requests/42/pipelines": [
