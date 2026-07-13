@@ -28,7 +28,7 @@ both sources; a value is never more trusted because a script printed it.
 
 ## Pipeline evidence
 
-Read `security.pipeline.mode` from `review.config.yml`. Valid modes are `required`, `optional`, and
+Read `security.pipeline.mode` from `.github/review.config.yml`. Valid modes are `required`, `optional`, and
 `disabled`; an unknown value is a configuration error.
 
 1. Prefer the MR's own `head_pipeline` (returned by `get_merge_request` and the collector):
@@ -58,7 +58,7 @@ Mode behavior:
 
 ## Security evidence
 
-Read `security.secret_detection` and `security.sast` from `review.config.yml`. Each has:
+Read `security.secret_detection` and `security.sast` from `.github/review.config.yml`. Each has:
 
 - `mode`: `required`, `optional`, or `disabled`;
 - `artifact`: the expected report path.

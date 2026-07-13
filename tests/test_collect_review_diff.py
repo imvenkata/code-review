@@ -37,6 +37,7 @@ class CollectReviewDiffTests(unittest.TestCase):
         (self.repo / "app.py").write_text("value = 1\n", encoding="utf-8")
         run("git", "add", "app.py", cwd=self.repo)
         run("git", "commit", "-m", "base", cwd=self.repo)
+        (self.repo / ".github").mkdir()
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -72,7 +73,7 @@ class CollectReviewDiffTests(unittest.TestCase):
         self.assertIn("+created = True", result.stdout)
 
     def test_uses_configured_base_and_rejects_an_invalid_one(self) -> None:
-        (self.repo / "review.config.yml").write_text(
+        (self.repo / ".github" / "review.config.yml").write_text(
             'local:\n  base_ref: "missing-target"\n',
             encoding="utf-8",
         )
@@ -83,7 +84,7 @@ class CollectReviewDiffTests(unittest.TestCase):
         self.assertIn("does not resolve to a commit", result.stderr)
 
     def test_applies_review_config_path_filters_to_untracked_files(self) -> None:
-        (self.repo / "review.config.yml").write_text(
+        (self.repo / ".github" / "review.config.yml").write_text(
             'path_filters:\n  ignore:\n    - "**/*.lock"\n',
             encoding="utf-8",
         )
@@ -99,7 +100,7 @@ class CollectReviewDiffTests(unittest.TestCase):
         self.assertIn("+reviewed = True", result.stdout)
 
     def test_explicit_base_overrides_repository_config(self) -> None:
-        (self.repo / "review.config.yml").write_text(
+        (self.repo / ".github" / "review.config.yml").write_text(
             'local:\n  base_ref: "missing-target"\n',
             encoding="utf-8",
         )
@@ -122,7 +123,7 @@ class CollectReviewDiffTests(unittest.TestCase):
         self.assertNotIn(token, scan_section)
 
     def test_oversized_files_are_reported_unavailable_not_flooded(self) -> None:
-        (self.repo / "review.config.yml").write_text(
+        (self.repo / ".github" / "review.config.yml").write_text(
             "limits:\n  max_file_patch_kb: 1\n  max_total_patch_kb: 8\n",
             encoding="utf-8",
         )

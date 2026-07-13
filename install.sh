@@ -40,7 +40,7 @@ rooted at --target (default: current directory).
   --ref REF     tag or branch to clone with --repo
   --target DIR  adopting repository root (default: current directory)
 
-First install also seeds project-owned files (review.config.yml and the
+First install also seeds project-owned files (.github/review.config.yml and the
 conventions placeholder) and merges the pinned gitlab-review server into
 .vscode/mcp.json without touching other servers. Updates replace only the
 toolkit-owned paths listed in install.manifest and delete files that were
@@ -347,7 +347,7 @@ if (( FRESH )) && (( ! DRY_RUN )); then
   note "  2. For the fast collector, export GITLAB_TOKEN + GITLAB_API_URL in the reviewer's shell"
   note "     (without them, evidence collection falls back to the slower MCP reads)"
   note "  3. Replace or remove the placeholder .github/instructions/conventions.instructions.md"
-  note "  4. Tune review.config.yml (scanner artifact paths, budgets, strictness)"
+  note "  4. Tune .github/review.config.yml (scanner artifact paths, budgets, strictness)"
   note "  5. Verify agents, skills, and MCP tools in VS Code Chat diagnostics"
 fi
 exit 0

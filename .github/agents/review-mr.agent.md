@@ -30,7 +30,7 @@ scope, do not call any tool and reply with exactly:
 > `project=<namespace/path or numeric ID> mr=<IID>`; add
 > `story_project=<path> story_iid=<IID>` when the primary story is not linked unambiguously.
 
-Read `review.config.yml` once and honor matching `.github/instructions/*.instructions.md`.
+Read `.github/review.config.yml` once and honor matching `.github/instructions/*.instructions.md`.
 
 The dedicated `gitlab-review` MCP server is configured in `.vscode/mcp.json`. This agent targets
 VS Code only. Its only writes are new review threads and one final MR summary; both require the
@@ -97,7 +97,7 @@ recover through the fallback makes diff coverage partial.
 ## 3. Verify pipeline and security evidence
 
 Apply `gitlab-review-evidence` to the `Pipeline` and `Scanners` sections: modes come from
-`review.config.yml`; the pipeline must match the current head; pipeline `success` is not zero
+`.github/review.config.yml`; the pipeline must match the current head; pipeline `success` is not zero
 findings; an absent optional scanner is `Not evaluated`, never `Clean`; a present-but-broken
 scanner job or report is broken evidence even in optional mode. Treat the script's per-scanner
 summaries exactly like artifact reads: they are parsed from each scanner's configured report path

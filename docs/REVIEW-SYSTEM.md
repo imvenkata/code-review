@@ -33,7 +33,7 @@ failed required pipeline or security report with findings. Missing required evid
 evidence from a present optional scanner, produces a partial marker and `Evidence incomplete`.
 An absent optional scanner is reported as `Not evaluated` and does not block a complete review.
 
-Configure each control in `review.config.yml` with:
+Configure each control in `.github/review.config.yml` with:
 
 - `required` — absence/failure blocks completeness;
 - `optional` — inspect when present; absence is non-blocking;
@@ -44,7 +44,7 @@ Configure each control in `review.config.yml` with:
 `collect-mr-evidence.py` is the primary evidence path: one read-only run per review, using
 `GITLAB_TOKEN` (or `GITLAB_PERSONAL_ACCESS_TOKEN`) and `GITLAB_API_URL` (or `CI_API_V4_URL`) from
 the environment — never from the command line. It returns the `# mr-evidence v1` bundle and exits
-non-zero with a clear message when the environment or `review.config.yml` is unusable, in which
+non-zero with a clear message when the environment or `.github/review.config.yml` is unusable, in which
 case the agent uses the MCP reads below for the whole review. Keep terminal auto-approval off so
 each collector run stays visible and confirmable.
 
@@ -73,7 +73,7 @@ or MR-update tools to this profile.
 
 Company CI templates are organization-owned and out of scope for this toolkit; it ships no CI
 jobs. The MR agent verifies whatever scanner evidence the organization's pipeline publishes:
-configure each control's `mode` and `artifact` path in `review.config.yml` (the defaults are
+configure each control's `mode` and `artifact` path in `.github/review.config.yml` (the defaults are
 GitLab's standard `gl-secret-detection-report.json` / `gl-sast-report.json`, which GitLab's own
 templates and most org wrappers emit). When a scanner is required or present, the agent verifies
 its job and artifact; it does not replace the scanner. The toolkit defaults both scanners to
@@ -89,7 +89,7 @@ replaces — a required organization Secret Detection control. Tune or extend th
 place; both agents and any git hook (`--fail-on-findings`) pick it up.
 
 Dependency scanning is tier/version dependent and is not silently assumed. When enabled for the
-organization, add its required job/report contract explicitly to `review.config.yml` and
+organization, add its required job/report contract explicitly to `.github/review.config.yml` and
 `gitlab-review-evidence`.
 
 ## Rollout checklist

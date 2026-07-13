@@ -4,7 +4,7 @@
 One read-only run replaces 15-25 MCP round trips: MR identity, requirement
 story, prior review markers, current-head pipeline + jobs, Secret Detection and
 SAST report summaries (redacted), a deterministic secret pre-scan, and the
-filtered per-file diffs — all under the token budgets in review.config.yml.
+filtered per-file diffs — all under the token budgets in .github/review.config.yml.
 
 Strictly read-only: every request is an HTTP GET against your own GitLab
 instance using GITLAB_TOKEN / GITLAB_PERSONAL_ACCESS_TOKEN and GITLAB_API_URL
@@ -448,7 +448,7 @@ def main() -> int:
     parser.add_argument("--mr", required=True, help="merge request IID")
     parser.add_argument("--story-project", help="explicit story project (with --story-iid)")
     parser.add_argument("--story-iid", help="explicit story IID (with --story-project)")
-    parser.add_argument("--config", default="review.config.yml")
+    parser.add_argument("--config", default=".github/review.config.yml")
     args = parser.parse_args()
 
     token = os.environ.get("GITLAB_TOKEN") or os.environ.get("GITLAB_PERSONAL_ACCESS_TOKEN")

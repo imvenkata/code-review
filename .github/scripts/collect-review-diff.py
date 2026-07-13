@@ -6,7 +6,7 @@ the merge base of the configured/default target branch and appends synthetic
 diffs for untracked files. It never stages files, fetches remotes, or changes
 repository configuration.
 
-Token budgets from review.config.yml `limits` are enforced here: oversized file
+Token budgets from .github/review.config.yml `limits` are enforced here: oversized file
 patches are excluded and reported as `unavailable` so the agent reports partial
 coverage instead of overflowing its context. `--secret-scan` appends a
 deterministic, redacted credential scan of the included added lines.
@@ -107,7 +107,7 @@ def resolve_base(repo: Path, cli_base: str | None, config: ReviewConfig) -> tupl
             return candidate, commit
 
     raise DiffCollectionError(
-        "could not determine the target branch; set local.base_ref in review.config.yml "
+        "could not determine the target branch; set local.base_ref in .github/review.config.yml "
         "or REVIEW_BASE_REF"
     )
 
@@ -385,7 +385,7 @@ def main() -> int:
     parser.add_argument("--base", help="target branch/ref; overrides config and REVIEW_BASE_REF")
     parser.add_argument(
         "--config",
-        default="review.config.yml",
+        default=".github/review.config.yml",
         help="review configuration path relative to the repository root",
     )
     parser.add_argument(

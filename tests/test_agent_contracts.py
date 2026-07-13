@@ -194,7 +194,7 @@ class AgentContractTests(unittest.TestCase):
 
         checked_paths = [
             ROOT / "README.md",
-            ROOT / "review.config.yml",
+            ROOT / ".github/review.config.yml",
             ROOT / "docs/ARCHITECTURE.md",
             ROOT / "docs/REVIEW-SYSTEM.md",
             *AGENTS.glob("*.agent.md"),
@@ -214,7 +214,7 @@ class AgentContractTests(unittest.TestCase):
                 self.assertNotIn(token, text, f"{path}: {token}")
 
     def test_config_defines_explicit_evidence_policies_and_no_ci_ships(self) -> None:
-        config = (ROOT / "review.config.yml").read_text(encoding="utf-8")
+        config = (ROOT / ".github/review.config.yml").read_text(encoding="utf-8")
 
         # Company CI templates are org-owned; this toolkit must not ship CI jobs.
         self.assertFalse((ROOT / "ci").exists())

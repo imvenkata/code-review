@@ -1,5 +1,5 @@
 # Review config (config-as-code, CodeRabbit-style). Read by both review features.
-# Lives at repo root; copy + tune per repo. Keep it short.
+# Lives at .github/review.config.yml; copy + tune per repo. Keep it short.
 
 # Default confidence threshold per strictness level (findings below are dropped).
 strictness:
@@ -20,6 +20,8 @@ limits:
 # Paths excluded from review entirely (token saver + noise reduction).
 path_filters:
   ignore:
+    - ".github/**"
+    - "**/*.md"
     - "**/*.lock"
     - "**/*.min.*"
     - "**/dist/**"

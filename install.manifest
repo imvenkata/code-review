@@ -17,5 +17,5 @@
 .github/scripts
 
 [seed]
-review.config.yml
+.github/review.config.yml
 .github/instructions/conventions.instructions.md

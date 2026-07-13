@@ -32,20 +32,20 @@ report parsing) runs in read-only Python scripts so model tokens are spent only 
 | `.github/scripts/collect-mr-evidence.py` | One-pass read-only GitLab MR evidence bundle |
 | `.github/scripts/reviewlib/` | Shared config parser and deterministic secret scanner |
 | `.github/instructions/*.instructions.md` | Project-owned, path-scoped coding conventions |
-| `review.config.yml` | Path filters, strictness, token budgets, evidence requirements, comment limits |
+| `.github/review.config.yml` | Path filters, strictness, token budgets, evidence requirements, comment limits |
 | `install.sh` + `install.manifest` | Install/update the toolkit in another repo; manifest-scoped, never touches project-owned files |
 | `docs/gitlab-mcp.example.json` | Pinned, least-privilege VS Code MCP configuration |
 
 The toolkit ships no CI jobs: company pipeline templates are organization-owned and out of scope.
 The MR agent verifies whatever Secret Detection / SAST report artifacts the organization's own
-pipeline publishes (paths configured in `review.config.yml`), and both review features run a
+pipeline publishes (paths configured in `.github/review.config.yml`), and both review features run a
 deterministic regex + entropy password/secret pre-scan that needs no CI at all.
 
 ## Adopt in a repository
 
 1. From the adopting repository's root, run the installer with your toolkit clone URL. It clones
    the toolkit into a temp dir, copies **only** the toolkit-owned agents, skills, and collector
-   scripts, seeds `review.config.yml` and the placeholder instructions file when absent, and
+   scripts, seeds `.github/review.config.yml` and the placeholder instructions file when absent, and
    merges the pinned `gitlab-review` MCP server into `.vscode/mcp.json` without touching other
    servers. Nothing else lands in your repo — `install.sh`, the manifest, tests, and docs stay
    out of the target.
@@ -79,9 +79,9 @@ deterministic regex + entropy password/secret pre-scan that needs no CI at all.
    so `collect-mr-evidence.py` can gather all MR evidence in one read-only pass; without them the
    agent falls back to the slower per-call MCP reads.
 6. If the organization's pipeline runs Secret Detection / SAST, point each scanner's `artifact`
-   in `review.config.yml` at the report path it publishes (GitLab's standard names are the
+   in `.github/review.config.yml` at the report path it publishes (GitLab's standard names are the
    defaults); otherwise leave the modes `optional` — absence is reported as `Not evaluated`.
-7. Tune `requirements`, `security`, and `limits` in `review.config.yml` to the GitLab tier and
+7. Tune `requirements`, `security`, and `limits` in `.github/review.config.yml` to the GitLab tier and
    controls the organization actually enforces.
 8. In VS Code Chat diagnostics, verify both agents, all three skills, and every namespaced MCP tool
    load without errors. Agents use whatever model is selected in the Copilot chat picker — see
@@ -124,7 +124,7 @@ The agent never approves, merges, resolves, labels, assigns, closes, or edits th
 and merge enforcement remain in GitLab.
 
 Pipeline, Secret Detection, and SAST controls use `required`, `optional`, or `disabled` modes in
-`review.config.yml`. Optional controls are inspected when present; absence is non-blocking but is
+`.github/review.config.yml`. Optional controls are inspected when present; absence is non-blocking but is
 never reported as clean.
 
 ## Validate this toolkit

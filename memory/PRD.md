@@ -13,7 +13,7 @@ Goal: reusable across many projects. Latest session: re-assess readiness + fix g
 - `.github/skills/` — review-standards, requirements-traceability, gitlab-review-evidence.
 - `.github/scripts/` — read-only collectors (`collect-review-diff.py`, `collect-mr-evidence.py`)
   + `reviewlib` (config parser, deterministic redacted secret scan).
-- `review.config.yml` — strictness, path filters, token budgets, pipeline/scanner modes.
+- `.github/review.config.yml` — strictness, path filters, token budgets, pipeline/scanner modes.
 - `docs/gitlab-mcp.example.json` — pinned zereight/mcp-gitlab@2.1.28, deny-regex, 2 confirmed writes.
 - `install.sh` + `install.manifest` — multi-repo install/update; manifest-scoped, lock-tracked,
   clones via `--repo` (supersedes the retired `scripts/adopt.py`).

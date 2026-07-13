@@ -13,7 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ReviewConfigTests(unittest.TestCase):
     def test_parses_the_shipped_config(self) -> None:
-        config = ReviewConfig(loads((ROOT / "review.config.yml").read_text(encoding="utf-8")))
+        config = ReviewConfig(
+            loads((ROOT / ".github" / "review.config.yml").read_text(encoding="utf-8"))
+        )
 
         self.assertIsNone(config.base_ref)
         self.assertIn("**/*.lock", config.ignore_globs)

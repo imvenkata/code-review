@@ -28,10 +28,10 @@ scope, do not call any tool and reply with exactly:
 
 Always apply the **review-standards** skill — it holds the rubric, false-positive list, 0-100
 scoring, and output contract. Honor any `.github/instructions/*.instructions.md` whose `applyTo`
-matches the changed files, and skip files matching `review.config.yml` path filters
+matches the changed files, and skip files matching `.github/review.config.yml` path filters
 (generated / vendored / lockfiles).
 
-**Strictness:** use the user's requested level, otherwise `review.config.yml`
+**Strictness:** use the user's requested level, otherwise `.github/review.config.yml`
 `strictness.default` (fallback: medium). Low keeps confidence >=90, medium >=80, high >=70.
 
 ## Steps (one pass — do not stop to ask questions)

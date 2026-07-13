@@ -19,12 +19,12 @@ Every lever below is already wired into the toolkit — the point of this page i
 | One evidence pass, not 15–25 tool calls | `collect-mr-evidence.py` fetches MR, story, markers, pipeline, jobs, scanner summaries, and diffs in a single read-only run | `review-mr` step 1 |
 | One diff pass locally | `collect-review-diff.py --secret-scan` returns manifest + patch + secret scan in one command | `code-review` step 1 |
 | Deterministic pre-work is free | Path filtering, patch budgeting, artifact JSON parsing, and the secret regex/entropy scan run in Python, not in the model | both collectors |
-| Token budgets fail closed | `limits.max_file_patch_kb` / `limits.max_total_patch_kb` exclude oversized patches and report them `unavailable` instead of overflowing context (which forces expensive retries) | `review.config.yml` |
-| Noise files never enter context | `path_filters.ignore` drops lockfiles, vendored, generated, and minified files before the model sees them | `review.config.yml` |
+| Token budgets fail closed | `limits.max_file_patch_kb` / `limits.max_total_patch_kb` exclude oversized patches and report them `unavailable` instead of overflowing context (which forces expensive retries) | `.github/review.config.yml` |
+| Noise files never enter context | `path_filters.ignore` drops lockfiles, vendored, generated, and minified files before the model sees them | `.github/review.config.yml` |
 | No duplicate reviews | The version-3 freshness marker suppresses a full re-review when head SHA, requirement, pipeline, and scanner evidence are unchanged | `gitlab-review-evidence` |
 | Cheap model for the cheap job | Pick a low-cost/included model in the Copilot chat picker for routine `code-review` runs — a single-pass pre-push gate does not need a premium model | chat model picker |
 | Single-turn agents | Both agents are one-pass by contract: no clarifying questions mid-run, no background subagents, no re-reading files | agent bodies |
-| Scanners replace model effort | The organization's CI scanners run for free (compute-wise); the agent verifies their published reports instead of re-deriving them | org CI + `review.config.yml` `security:` |
+| Scanners replace model effort | The organization's CI scanners run for free (compute-wise); the agent verifies their published reports instead of re-deriving them | org CI + `.github/review.config.yml` `security:` |
 | Short instruction files | Agent bodies, skills, and instruction files are input tokens on every run; keep conventions specific and brief | `.github/instructions/` |
 
 ## Model selection

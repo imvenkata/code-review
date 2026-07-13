@@ -22,7 +22,7 @@ OWNED_SAMPLE = [
     ".github/scripts/reviewlib/secretscan.py",
 ]
 SEEDS = [
-    "review.config.yml",
+    ".github/review.config.yml",
     ".github/instructions/conventions.instructions.md",
 ]
 
@@ -92,7 +92,7 @@ class InstallScriptTests(unittest.TestCase):
     def test_update_never_overwrites_project_owned_files(self) -> None:
         self.assert_ok(run_install(self.target))
 
-        config = self.target / "review.config.yml"
+        config = self.target / ".github/review.config.yml"
         conventions = self.target / ".github/instructions/conventions.instructions.md"
         config.write_text("limits: {custom: true}\n", encoding="utf-8")
         conventions.unlink()

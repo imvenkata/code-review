@@ -52,7 +52,7 @@ using any non-approved AI service.
 
 - The pinned `@zereight/mcp-gitlab` server is configured in the workspace `.vscode/mcp.json` with a
   short-lived token whose role can read project evidence and create MR comments — nothing more.
-- `review.config.yml` at repo root supplies path filters, strictness, requirement policy, and
+- `.github/review.config.yml` supplies path filters, strictness, requirement policy, and
   per-control evidence modes.
 - The three shared skills exist and are applied: `review-standards`, `requirements-traceability`,
   `gitlab-review-evidence`.
@@ -91,7 +91,7 @@ using any non-approved AI service.
   eligible file makes coverage **partial**.
 
 ### AC4 — Pipeline & security evidence
-- [ ] Per `review.config.yml`, each control (pipeline, secret detection, SAST, …) is read in
+- [ ] Per `.github/review.config.yml`, each control (pipeline, secret detection, SAST, …) is read in
   `required` / `optional` / `disabled` mode; an unknown mode or missing artifact path for an enabled
   control is a configuration error.
 - [ ] The agent selects only pipelines whose SHA equals the current MR head, reads jobs with
@@ -132,7 +132,7 @@ using any non-approved AI service.
   or MCP profile; an automated check asserts their absence.
 - [ ] The agent minimizes token/credit use: it reads only `included` changed files, batches diff
   fetches, reads full file bodies only when a finding or criterion genuinely needs context, and skips
-  files matching `review.config.yml` path filters.
+  files matching `.github/review.config.yml` path filters.
 
 ## Non-functional requirements
 

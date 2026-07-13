@@ -55,7 +55,7 @@ Confidence is the probability that the finding is valid, not its impact:
 - **76-90** — strongly supported by the diff and surrounding evidence.
 - **91-100** — directly demonstrated or effectively certain.
 
-**Drop every finding below the threshold** (default 80; overridable per run or in `review.config.yml`).
+**Drop every finding below the threshold** (default 80; overridable per run or in `.github/review.config.yml`).
 If nothing survives, say so plainly and add nothing else.
 
 ## Impact severity (surviving findings)
