@@ -63,10 +63,20 @@ deterministic regex + entropy password/secret pre-scan that needs no CI at all.
    file from `docs/gitlab-mcp.example.json`). Keep the package pin and tool policy until a newer
    version passes compatibility testing; if the installer reported `manual`, add the server block
    from `docs/gitlab-mcp.example.json` by hand.
-4. Point `GITLAB_API_URL` at your GitLab instance and use a short-lived token with the minimum role
-   needed to read project evidence and create MR comments.
-5. Export the same values in the reviewer's shell (`GITLAB_TOKEN` + `GITLAB_API_URL`) so
-   `collect-mr-evidence.py` can gather all MR evidence in one read-only pass; without them the
+4. In `.vscode/mcp.json`, set `GITLAB_API_URL` to your GitLab instance's API URL
+   (`https://gitlab.yourco.com/api/v4`). Get a short-lived personal access token from GitLab
+   (**Edit profile → Access Tokens**, scope `api`, minimum role needed to read project evidence
+   and create MR comments — a project/group token works too if your org restricts personal ones).
+   Do not paste the token into `.vscode/mcp.json`: the `GITLAB_PERSONAL_ACCESS_TOKEN` field is
+   `${input:gitlabPat}`, a VS Code input variable — the first time the `gitlab-review` MCP server
+   starts, VS Code prompts for the token in a masked input box, holds it in memory for that
+   session, and never writes it to disk.
+5. For the fast collector, export the same token in the reviewer's shell (e.g. `~/.zshrc`):
+   ```bash
+   export GITLAB_TOKEN="<your-short-lived-pat>"
+   export GITLAB_API_URL="https://gitlab.yourco.com/api/v4"
+   ```
+   so `collect-mr-evidence.py` can gather all MR evidence in one read-only pass; without them the
    agent falls back to the slower per-call MCP reads.
 6. If the organization's pipeline runs Secret Detection / SAST, point each scanner's `artifact`
    in `review.config.yml` at the report path it publishes (GitLab's standard names are the
