@@ -32,8 +32,12 @@ _DEF_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b(?:export\s+)?(?:default\s+)?function\s+(?P<name>[A-Za-z_$][\w$]*)"),  # js/ts
     re.compile(r"\bfunc\s+(?:\([^)]*\)\s*)?(?P<name>[A-Za-z_]\w*)"),                  # go
     re.compile(r"\bfn\s+(?P<name>[A-Za-z_]\w*)"),                                     # rust
+    re.compile(r"\bfun\s+(?P<name>[A-Za-z_]\w*)"),                                    # kotlin/scala
     re.compile(r"\b(?:class|interface|trait|struct|enum|type|module)\s+(?P<name>[A-Za-z_]\w*)"),
     re.compile(r"\b(?:export\s+)?(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*="),   # js bindings
+    re.compile(                                                                       # sql objects
+        r"(?i)\bcreate\s+(?:or\s+replace\s+)?"
+        r"(?:procedure|function|table|view|trigger|index)\s+(?P<name>[A-Za-z_]\w*)"),
 )
 
 # Names shorter than this are too noisy to grep the whole repo for.

@@ -22,12 +22,16 @@ class ChangedSymbolsTests(unittest.TestCase):
             ("api.ts", "@@ -1 +1 @@\n+export function fetchUser(id) {\n"),
             ("svc.go", "@@ -1 +1 @@\n+func HandleRequest(w, r) {\n"),
             ("types.rs", "@@ -1 +1 @@\n+struct OrderTotal {\n"),
+            ("Repo.kt", "@@ -1 +1 @@\n+fun findByRegion(region: String) {\n"),
+            ("orders.sql", "@@ -1 +1 @@\n+CREATE OR REPLACE PROCEDURE settle_orders() AS\n"),
         ]
         symbols = codegraph.changed_symbols(chunks)
         self.assertIn("process_order", symbols)
         self.assertIn("fetchUser", symbols)
         self.assertIn("HandleRequest", symbols)
         self.assertIn("OrderTotal", symbols)
+        self.assertIn("findByRegion", symbols)
+        self.assertIn("settle_orders", symbols)
 
     def test_drops_short_names_and_ignores_context_lines(self) -> None:
         chunks = [("x.py", "@@ -1 +1 @@\n def fn(x):\n-def ab(y):\n+    return fn(x)\n")]
